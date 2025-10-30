@@ -7,15 +7,10 @@ bool SplashDialog::showSplashDialog() {
     ConfigManager& configManager = ConfigManager::getInstance();
     const HookConfig& config = configManager.getConfig();
     
-    // 构建弹窗标题 - 简化标题避免过长
+    // 构建弹窗标题
     std::wstring dialogTitle = L"CELICA_HOOK";
     if (!config.newWindowTitle.empty()) {
-        // 如果新标题过长，只使用前20个字符
-        if (config.newWindowTitle.length() > 20) {
-            dialogTitle = config.newWindowTitle.substr(0, 20) + L"...";
-        } else {
-            dialogTitle = config.newWindowTitle;
-        }
+        dialogTitle = config.newWindowTitle;
     }
     
     // 构建消息内容
