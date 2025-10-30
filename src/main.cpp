@@ -4,6 +4,7 @@
 #include "logger.h"
 #include "hook_manager.h"
 #include "utils.h"
+#include "splash_dialog.h"
 
 // DLL导出函数声明
 extern "C" __declspec(dllexport) BOOL WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved);
@@ -41,6 +42,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
             
             Logger::getInstance().log(L"CELICA_HOOK DLL已加载");
             Logger::getInstance().log(L"进程ID: " + std::to_wstring(GetCurrentProcessId()));
+            
+            // 显示作者信息弹窗 - 用户必须确认后才能继续
+            if (!SplashDialog::showSplashDialog()) {
+                Logger::getInstance().log(L"用户取消弹窗，DLL加载失败");
+                return FALSE;
+            }
             
             // 初始化hook管理器
             if (!HookManager::getInstance().initialize()) {

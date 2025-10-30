@@ -5,6 +5,28 @@
 #include <string>
 #include <unordered_map>
 
+// 作者信息 - 用户不可修改
+namespace AuthorInfo {
+    // 作者在不同论坛的ID
+    constexpr const wchar_t* AUTHOR_IDS[] = {
+        L"natsumerinchan (GitHub)",
+        L"natsumerin@ai2.moe (御爱同萌)",
+        L"雨宮ゆうこ@moyu.moe (鲲补丁站)"
+    };
+    constexpr int AUTHOR_IDS_COUNT = 3;
+    
+    // 多个主页链接
+    constexpr const wchar_t* AUTHOR_HOMEPAGES[] = {
+        L"https://github.com/natsumerinchan",
+        L"https://github.com/natsumerinchan/MyGalTranslationPatches",
+        L"https://www.ai2.moe/profile/13275-natsumerin/",
+        L"https://www.moyu.moe/user/47/resource"
+    };
+    constexpr int AUTHOR_HOMEPAGES_COUNT = 4;
+    
+    constexpr const wchar_t* ADDITIONAL_NOTES = L"本补丁免费发布在Github、御爱以及鲲补丁站，\n允许转载但严禁倒卖和冒充人工汉化发布，\n如果你是花钱获得本补丁的说明你被骗了。";
+}
+
 // 配置结构体
 struct HookConfig {
     bool enableFileRedirect = false;
