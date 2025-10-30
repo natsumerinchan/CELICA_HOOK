@@ -37,6 +37,7 @@ add_library(CELICA_HOOK SHARED
     src/config_manager.cpp
     src/utils.cpp
     src/splash_dialog.cpp
+    src/locale_emulator.cpp
 )
 
 # 链接detours库
@@ -60,6 +61,7 @@ add_executable(CELICA_HOOK_TEST
     src/config_manager.cpp
     src/utils.cpp
     src/splash_dialog.cpp
+    src/locale_emulator.cpp
 )
 
 # 链接detours库

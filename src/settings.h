@@ -4,6 +4,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <windows.h>
 
 // 作者信息 - 用户不可修改
 namespace AuthorInfo {
@@ -52,6 +53,13 @@ struct HookConfig {
     bool enableTitleCheck = true;        // 是否启用标题检查
     std::wstring originalWindowTitle = L"";  // 原标题
     std::wstring newWindowTitle = L"";       // 新标题
+    
+    // 转区配置
+    bool enableLocaleEmulation = false;      // 是否启用转区功能
+    unsigned int localeCodepage = 932;       // 转区代码页 (默认日文932)
+    unsigned int localeId = 1041;            // 区域设置ID (默认日文1041)
+    unsigned int localeCharset = SHIFTJIS_CHARSET; // 字符集 (默认Shift-JIS)
+    std::wstring timezone = L"Tokyo Standard Time"; // 时区 (默认东京时区)
     
     // 日志配置
     bool enableLogging = true;

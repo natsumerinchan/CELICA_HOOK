@@ -5,6 +5,7 @@
 #include "hook_manager.h"
 #include "utils.h"
 #include "splash_dialog.h"
+#include "locale_emulator.h"
 
 // DLL导出函数声明
 extern "C" __declspec(dllexport) BOOL WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved);
@@ -27,6 +28,9 @@ struct GlobalInitializer {
         if (config.enableLogging) {
             Logger::getInstance().initialize(config.logFile);
         }
+        
+        // 初始化转区功能
+        LocaleEmulator::getInstance().initialize();
     }
 };
 
@@ -42,6 +46,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
             
             Logger::getInstance().log(L"CELICA_HOOK DLL已加载");
             Logger::getInstance().log(L"进程ID: " + std::to_wstring(GetCurrentProcessId()));
+            
+            // 执行转区操作（如果需要）
+            if (LocaleEmulator::getInstance().performLocaleEmulation()) {
+                // 如果转区成功，进程会被重新启动，这里不会继续执行
+                Logger::getInstance().log(L"转区操作已执行，进程将重新启动");
+                return TRUE;
+            }
             
             // 显示作者信息弹窗 - 用户必须确认后才能继续
             if (!SplashDialog::showSplashDialog()) {

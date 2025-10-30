@@ -109,6 +109,12 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
         m_config.originalWindowTitle = value;
     } else if (key == L"WindowTitle.NewWindowTitle") {
         m_config.newWindowTitle = value;
+    } else if (key == L"General.EnableLocaleEmulation") {
+        m_config.enableLocaleEmulation = (value == L"1");
+    } else if (key == L"LocaleEmulation.LocaleId") {
+        m_config.localeId = std::stoi(value);
+    } else if (key == L"LocaleEmulation.Timezone") {
+        m_config.timezone = value;
     } else if (key == L"Logging.LogFile") {
         m_config.logFile = value;
     }

@@ -38,6 +38,8 @@ CELICA_HOOK/
     ├── codepage_hook.cpp  # 代码页hook实现
     ├── window_title_hook.h    # 窗口标题hook头文件
     ├── window_title_hook.cpp  # 窗口标题hook实现
+    ├── locale_emulator.h      # 转区功能头文件
+    ├── locale_emulator.cpp    # 转区功能实现
     ├── utils.h            # 工具类头文件
     └── utils.cpp          # 工具类实现
 ```
@@ -63,6 +65,8 @@ git clone https://github.com/natsumerinchan/CELICA_HOOK.git
 使用Visual Studio 2026打开本项目文件夹，待`CMake 生成完毕`后  
 在菜单栏的`生成`中执行`全部生成`即可。
 
+使用DLL导入表修改工具如Detours项目的setdll.exe(已放在仓库的tools文件夹)将编译生成的`CELICA_HOOK.dll`导入到目标游戏exe中。
+
 ## 使用方法
 
 ### 1. 配置文件设置
@@ -74,12 +78,13 @@ git clone https://github.com/natsumerinchan/CELICA_HOOK.git
 ; 注释以分号开头
 
 [General]
-; 启用或禁用功能
+; 启用(=1)或禁用(=0)功能
 EnableFileRedirect=1
 EnableFontHook=1
 EnableCodepageHook=1
-EnableWindowTitleHook=1
-EnableLogging=1
+EnableWindowTitleHook=0
+EnableLocaleEmulation=0
+EnableLogging=0
 
 [FileRedirect]
 ; 文件重定向文件夹
@@ -88,13 +93,13 @@ RedirectFolder=CHSFiles
 [Font]
 ; 字体配置
 ; 字体名称，留空使用系统默认
-FontName=黑体
+FontName=VL ゴシック
 ; 字符集 (十六进制)
 ; 0x80: Shift-JIS (日文)
 ; 0x81: (韩文)
 ; 0x86: GB2312 (简体中文)
 ; 0x88: BIG5 (繁体中文)
-Charset=0x86
+Charset=0x80
 ; 字体高度 (0表示不修改)
 FontHeight=0
 ; 字体宽度 (0表示不修改)
@@ -107,7 +112,7 @@ FontWeight=0
 ; 原代码页 (游戏原始编码)
 SourceCodepage=932
 ; 目标代码页 (要转换成的编码)
-TargetCodepage=936
+TargetCodepage=932
 
 [WindowTitle]
 ; 窗口标题配置
@@ -117,6 +122,14 @@ EnableTitleCheck=1
 OriginalWindowTitle=
 ; 新标题 (留空表示不修改)
 NewWindowTitle=
+
+[LocaleEmulation]
+; 转区功能配置
+; 转区代码页和字符集直接使用[Codepage]中的TargetCodepage和[Font]中的Charset
+; 区域设置ID (1041=日文, 2052=简体中文, 1028=繁体中文)
+LocaleId=1041
+; 时区 (Tokyo Standard Time=东京时区, China Standard Time=中国标准时间)
+Timezone=Tokyo Standard Time
 
 [Logging]
 ; 日志文件路径
@@ -189,9 +202,35 @@ LogFile=celica_hook.log
 - 弹窗为系统模态对话框，确保用户必须处理
 - 如果用户取消弹窗，DLL加载将失败
 
-### 7. 修改DLL导入表
+### 7. Locale Emulator转区功能配置
 
-使用DLL导入表修改工具如Detours项目的setdll.exe(已放在仓库的tools文件夹)将编译生成的`CELICA_HOOK.dll`导入到目标游戏exe中。
+**功能说明：**
+
+转区功能通过重新启动游戏进程来模拟目标区域的语言环境设置，解决某些游戏在非原生语言环境下运行的问题。
+
+**配置参数：**
+
+- **LocaleId**: 区域设置ID
+  - `1041`: 日文
+  - `2052`: 简体中文  
+  - `1028`: 繁体中文
+- **Timezone**: 时区设置
+  - `Tokyo Standard Time`: 东京时区
+  - `China Standard Time`: 中国标准时间
+
+**重要说明：**
+
+- 转区功能**直接使用[Codepage]中的TargetCodepage和[Font]中的Charset**，无需重复设置
+- 当系统代码页与目标代码页不同时，会自动触发转区操作
+- 转区操作会重新启动游戏进程
+- 需要自备[Locale Emulator](https://github.com/xupefei/Locale-Emulator.git)的`LoaderDll.dll`和`LocaleEmulator.dll`文件，请确保这两个文件存在于游戏目录
+
+**工作流程：**
+
+1. 检查当前系统代码页与目标代码页是否一致
+2. 如果不一致，创建新的区域环境块(LEB)
+3. 使用LoaderDll.dll重新启动游戏进程
+4. 新进程在目标区域环境下运行
 
 ## Hook的函数
 
@@ -239,3 +278,4 @@ LogFile=celica_hook.log
 ## Credits
 
 - [microsoft/Detours](https://github.com/microsoft/Detours.git): Detours is a software package for monitoring and instrumenting API calls on Windows. It is distributed in source code form.
+- [xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git) :转区工具

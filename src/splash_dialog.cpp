@@ -19,7 +19,7 @@ bool SplashDialog::showSplashDialog() {
     }
     
     // 构建消息内容
-    std::wstring message = L"作者ID:\n";
+    std::wstring message = L"作者:\n";
     
     // 添加所有作者ID
     for (int i = 0; i < AuthorInfo::AUTHOR_IDS_COUNT; ++i) {
