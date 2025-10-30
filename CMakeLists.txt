@@ -18,7 +18,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif()
 
 # 包含目录
-include_directories(${CMAKE_SOURCE_DIR}/detours)
+include_directories(${CMAKE_SOURCE_DIR}/src/detours)
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
 # 设置输出目录
@@ -41,7 +41,7 @@ add_library(CELICA_HOOK SHARED
 )
 
 # 链接detours库
-target_link_libraries(CELICA_HOOK ${CMAKE_SOURCE_DIR}/detours/detours.lib)
+target_link_libraries(CELICA_HOOK ${CMAKE_SOURCE_DIR}/src/detours/detours.lib)
 
 # Windows API链接
 target_link_libraries(CELICA_HOOK kernel32 user32 gdi32)
@@ -65,7 +65,7 @@ add_executable(CELICA_HOOK_TEST
 )
 
 # 链接detours库
-target_link_libraries(CELICA_HOOK_TEST ${CMAKE_SOURCE_DIR}/detours/detours.lib)
+target_link_libraries(CELICA_HOOK_TEST ${CMAKE_SOURCE_DIR}/src/detours/detours.lib)
 
 # Windows API链接
 target_link_libraries(CELICA_HOOK_TEST kernel32 user32 gdi32)
