@@ -173,40 +173,41 @@ HWND WINAPI WindowTitleHook::HookedCreateWindowExA(
         // 将ANSI字符串转换为Unicode
         int len = MultiByteToWideChar(CP_ACP, 0, lpWindowName, -1, nullptr, 0);
         if (len > 0) {
-            std::wstring originalTitle(len - 1, L'\0');
-            MultiByteToWideChar(CP_ACP, 0, lpWindowName, -1, &originalTitle[0], len);
+            // 修复1：分配足够空间包含终止符
+            std::wstring originalTitle(len, L'\0');
+            int result = MultiByteToWideChar(CP_ACP, 0, lpWindowName, -1, &originalTitle[0], len);
             
-            std::wstring newTitle = processWindowTitle(originalTitle);
-            
-            if (newTitle != originalTitle) {
-                Logger::getInstance().log(L"CreateWindowExA: 修改窗口标题");
-                Logger::getInstance().log(L"原标题: " + originalTitle);
-                Logger::getInstance().log(L"新标题: " + newTitle);
+            if (result > 0) {
+                // 修复2：正确设置字符串长度
+                originalTitle.resize(result - 1);
                 
-                // 将Unicode字符串转换回ANSI
-                int ansiLen = WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, nullptr, 0, nullptr, nullptr);
-                if (ansiLen > 0) {
-                    std::string ansiTitle(ansiLen - 1, '\0');
-                    WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, &ansiTitle[0], ansiLen, nullptr, nullptr);
-                    processedWindowName = ansiTitle.c_str();
+                std::wstring newTitle = processWindowTitle(originalTitle);
+                
+                if (newTitle != originalTitle) {
+                    Logger::getInstance().log(L"CreateWindowExA: 修改窗口标题");
+                    Logger::getInstance().log(L"原标题: " + originalTitle);
+                    Logger::getInstance().log(L"新标题: " + newTitle);
+                    
+                    // 将Unicode字符串转换回ANSI
+                    int ansiLen = WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, nullptr, 0, nullptr, nullptr);
+                    if (ansiLen > 0) {
+                        // 修复3：确保ANSI字符串正确终止
+                        std::vector<char> ansiBuffer(ansiLen);
+                        WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, ansiBuffer.data(), ansiLen, nullptr, nullptr);
+                        
+                        // 使用静态字符串避免生命周期问题
+                        static std::string ansiTitle;
+                        ansiTitle.assign(ansiBuffer.data());
+                        processedWindowName = ansiTitle.c_str();
+                    }
                 }
             }
         }
     }
     
     return OriginalCreateWindowExA(
-        dwExStyle,
-        lpClassName,
-        processedWindowName,
-        dwStyle,
-        X,
-        Y,
-        nWidth,
-        nHeight,
-        hWndParent,
-        hMenu,
-        hInstance,
-        lpParam
+        dwExStyle, lpClassName, processedWindowName, dwStyle,
+        X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam
     );
 }
 
@@ -214,25 +215,28 @@ BOOL WINAPI WindowTitleHook::HookedSetWindowTextA(HWND hWnd, LPCSTR lpString) {
     LPCSTR processedString = lpString;
     
     if (lpString != nullptr) {
-        // 将ANSI字符串转换为Unicode
         int len = MultiByteToWideChar(CP_ACP, 0, lpString, -1, nullptr, 0);
         if (len > 0) {
-            std::wstring originalTitle(len - 1, L'\0');
-            MultiByteToWideChar(CP_ACP, 0, lpString, -1, &originalTitle[0], len);
+            std::wstring originalTitle(len, L'\0');
+            int result = MultiByteToWideChar(CP_ACP, 0, lpString, -1, &originalTitle[0], len);
             
-            std::wstring newTitle = processWindowTitle(originalTitle);
-            
-            if (newTitle != originalTitle) {
-                Logger::getInstance().log(L"SetWindowTextA: 修改窗口标题");
-                Logger::getInstance().log(L"原标题: " + originalTitle);
-                Logger::getInstance().log(L"新标题: " + newTitle);
+            if (result > 0) {
+                originalTitle.resize(result - 1);
                 
-                // 将Unicode字符串转换回ANSI
-                int ansiLen = WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, nullptr, 0, nullptr, nullptr);
-                if (ansiLen > 0) {
-                    std::string ansiTitle(ansiLen - 1, '\0');
-                    WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, &ansiTitle[0], ansiLen, nullptr, nullptr);
-                    processedString = ansiTitle.c_str();
+                std::wstring newTitle = processWindowTitle(originalTitle);
+                
+                if (newTitle != originalTitle) {
+                    Logger::getInstance().log(L"SetWindowTextA: 修改窗口标题");
+                    
+                    int ansiLen = WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, nullptr, 0, nullptr, nullptr);
+                    if (ansiLen > 0) {
+                        std::vector<char> ansiBuffer(ansiLen);
+                        WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, ansiBuffer.data(), ansiLen, nullptr, nullptr);
+                        
+                        static std::string ansiTitle;
+                        ansiTitle.assign(ansiBuffer.data());
+                        processedString = ansiTitle.c_str();
+                    }
                 }
             }
         }
