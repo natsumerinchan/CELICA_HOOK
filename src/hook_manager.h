@@ -20,7 +20,6 @@ private:
     
     bool installFileRedirectHooks();
     bool installFontHooks();
-    bool installCodepageHooks();
     bool installWindowTitleHooks();
     
     void logHookStatus(const char* hookName, bool success);

@@ -32,7 +32,6 @@ namespace AuthorInfo {
 struct HookConfig {
     bool enableFileRedirect = false;
     bool enableFontHook = false;
-    bool enableCodepageHook = false;
     bool enableWindowTitleHook = false;
     
     // 文件重定向配置
@@ -40,14 +39,10 @@ struct HookConfig {
     
     // 字体配置
     std::wstring fontName = L"";
-    int charset = 0x86; // 默认简体中文GB2312
+    int localeCharset = 0x80; // 默认日文Shift-JIS
     int fontWeight = 0;
     int fontHeight = 0;  // 字体高度 (0表示不修改)
     int fontWidth = 0;   // 字体宽度 (0表示不修改)
-    
-    // 代码页配置
-    unsigned int sourceCodepage = 932;   // 默认日文Shift-JIS
-    unsigned int targetCodepage = 936;   // 默认简体中文GBK
     
     // 窗口标题配置
     bool enableTitleCheck = true;        // 是否启用标题检查
@@ -58,7 +53,6 @@ struct HookConfig {
     bool enableLocaleEmulation = false;      // 是否启用转区功能
     unsigned int localeCodepage = 932;       // 转区代码页 (默认日文932)
     unsigned int localeId = 1041;            // 区域设置ID (默认日文1041)
-    unsigned int localeCharset = SHIFTJIS_CHARSET; // 字符集 (默认Shift-JIS)
     std::wstring timezone = L"Tokyo Standard Time"; // 时区 (默认东京时区)
     
     // 日志配置

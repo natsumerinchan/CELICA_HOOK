@@ -122,21 +122,17 @@ int main() {
         const HookConfig& config = configManager.getConfig();
         std::wcout << L"文件重定向: " << (config.enableFileRedirect ? L"启用" : L"禁用") << std::endl;
         std::wcout << L"字体hook: " << (config.enableFontHook ? L"启用" : L"禁用") << std::endl;
-        std::wcout << L"代码页hook: " << (config.enableCodepageHook ? L"启用" : L"禁用") << std::endl;
         std::wcout << L"重定向文件夹: " << config.redirectFolder << std::endl;
-        std::wcout << L"字体字符集: " << Utils::intToHexString(config.charset) << std::endl;
-        std::wcout << L"原代码页: " << config.sourceCodepage << std::endl;
-        std::wcout << L"目标代码页: " << config.targetCodepage << std::endl;
+        std::wcout << L"字体字符集: " << Utils::intToHexString(config.localeCharset) << std::endl;
+        std::wcout << L"代码页: " << config.localeCodepage << std::endl;
         
         // 记录配置信息到日志
         if (config.enableLogging) {
             Logger::getInstance().log(L"文件重定向: " + std::wstring(config.enableFileRedirect ? L"启用" : L"禁用"));
             Logger::getInstance().log(L"字体hook: " + std::wstring(config.enableFontHook ? L"启用" : L"禁用"));
-            Logger::getInstance().log(L"代码页hook: " + std::wstring(config.enableCodepageHook ? L"启用" : L"禁用"));
             Logger::getInstance().log(L"重定向文件夹: " + config.redirectFolder);
-            Logger::getInstance().log(L"字体字符集: " + Utils::intToHexString(config.charset));
-            Logger::getInstance().log(L"原代码页: " + std::to_wstring(config.sourceCodepage));
-            Logger::getInstance().log(L"目标代码页: " + std::to_wstring(config.targetCodepage));
+            Logger::getInstance().log(L"字体字符集: " + Utils::intToHexString(config.localeCharset));
+            Logger::getInstance().log(L"代码页: " + std::to_wstring(config.localeCodepage));
         }
     } else {
         std::wcout << L"配置文件加载失败，使用默认配置" << std::endl;

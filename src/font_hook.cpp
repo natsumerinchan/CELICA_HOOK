@@ -206,7 +206,7 @@ HFONT WINAPI FontHook::HookedCreateFontA(
     int newHeight = (config.fontHeight > 0) ? config.fontHeight : nHeight;
     int newWidth = (config.fontWidth > 0) ? config.fontWidth : nWidth;
     int newWeight = (config.fontWeight > 0) ? config.fontWeight : fnWeight;
-    DWORD newCharSet = (config.charset > 0) ? config.charset : fdwCharSet;
+    DWORD newCharSet = (config.localeCharset > 0) ? config.localeCharset : fdwCharSet;
     
     // 转换为宽字符版本处理
     std::wstring wFaceName;
@@ -277,7 +277,7 @@ HFONT WINAPI FontHook::HookedCreateFontW(
     int newHeight = (config.fontHeight > 0) ? config.fontHeight : nHeight;
     int newWidth = (config.fontWidth > 0) ? config.fontWidth : nWidth;
     int newWeight = (config.fontWeight > 0) ? config.fontWeight : fnWeight;
-    DWORD newCharSet = (config.charset > 0) ? config.charset : fdwCharSet;
+    DWORD newCharSet = (config.localeCharset > 0) ? config.localeCharset : fdwCharSet;
     
     LPCWSTR newFaceName = lpszFace;
     std::wstring customFaceName;
@@ -393,8 +393,8 @@ void FontHook::modifyFontParams(LOGFONTA* lf) {
         lf->lfWeight = config.fontWeight;
     }
     
-    if (config.charset > 0) {
-        lf->lfCharSet = config.charset;
+    if (config.localeCharset > 0) {
+        lf->lfCharSet = config.localeCharset;
     }
     
     if (!config.fontName.empty()) {
@@ -423,8 +423,8 @@ void FontHook::modifyFontParams(LOGFONTW* lf) {
         lf->lfWeight = config.fontWeight;
     }
     
-    if (config.charset > 0) {
-        lf->lfCharSet = config.charset;
+    if (config.localeCharset > 0) {
+        lf->lfCharSet = config.localeCharset;
     }
     
     if (!config.fontName.empty()) {
@@ -499,8 +499,8 @@ int WINAPI FontHook::HookedEnumFontFamiliesExA(
     }
     
     // 修改字符集
-    if (config.charset > 0) {
-        logfontW.lfCharSet = config.charset;
+    if (config.localeCharset > 0) {
+        logfontW.lfCharSet = config.localeCharset;
     }
     
     // 创建回调包装器，将宽字符字体信息转换为ANSI
@@ -600,8 +600,8 @@ int WINAPI FontHook::HookedEnumFontFamiliesExW(
         wcsncpy_s(modifiedLogfont.lfFaceName, LF_FACESIZE, config.fontName.c_str(), _TRUNCATE);
     }
     
-    if (config.charset > 0) {
-        modifiedLogfont.lfCharSet = config.charset;
+    if (config.localeCharset > 0) {
+        modifiedLogfont.lfCharSet = config.localeCharset;
     }
     
     // 创建回调包装器，应用字体修改
@@ -620,8 +620,8 @@ int WINAPI FontHook::HookedEnumFontFamiliesExW(
                 wcsncpy_s(modifiedLf.lfFaceName, LF_FACESIZE, config.fontName.c_str(), _TRUNCATE);
             }
             
-            if (config.charset > 0) {
-                modifiedLf.lfCharSet = config.charset;
+            if (config.localeCharset > 0) {
+                modifiedLf.lfCharSet = config.localeCharset;
             }
             
             return wrapper->originalProc(&modifiedLf, lptm, dwType, wrapper->originalParam);

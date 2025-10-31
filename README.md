@@ -6,9 +6,9 @@
 
 - **文件重定向**: 将游戏目录下的`CHSFiles`文件夹内容递归映射到游戏根目录
 - **字体修改**: 修改游戏字体和字符集，支持中文显示
-- **代码页转换**: 转换文本编码，支持日文到中文的转换
 - **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本
 - **启动弹窗**: 游戏启动时显示作者信息弹窗，用户确认后才能继续运行
+- **自动转区**: 在[xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git)的作用下自动转区
 - **日志系统**: UTF-8-BOM编码的详细日志输出
 - **配置驱动**: 通过配置文件灵活控制各项功能
 
@@ -34,8 +34,6 @@ CELICA_HOOK/
     ├── file_redirect_hook.cpp # 文件重定向hook实现
     ├── font_hook.h        # 字体hook头文件
     ├── font_hook.cpp      # 字体hook实现
-    ├── codepage_hook.h    # 代码页hook头文件
-    ├── codepage_hook.cpp  # 代码页hook实现
     ├── window_title_hook.h    # 窗口标题hook头文件
     ├── window_title_hook.cpp  # 窗口标题hook实现
     ├── locale_emulator.h      # 转区功能头文件
@@ -81,7 +79,6 @@ git clone https://github.com/natsumerinchan/CELICA_HOOK.git
 ; 启用(=1)或禁用(=0)功能
 EnableFileRedirect=1
 EnableFontHook=1
-EnableCodepageHook=1
 EnableWindowTitleHook=0
 EnableLocaleEmulation=0
 EnableLogging=0
@@ -107,13 +104,6 @@ FontWidth=0
 ; 字体粗细 (0表示不修改)
 FontWeight=0
 
-[Codepage]
-; 代码页配置
-; 原代码页 (游戏原始编码)
-SourceCodepage=932
-; 目标代码页 (要转换成的编码)
-TargetCodepage=932
-
 [WindowTitle]
 ; 窗口标题配置
 ; 是否启用标题检查 (1=启用, 0=禁用)
@@ -125,7 +115,9 @@ NewWindowTitle=
 
 [LocaleEmulation]
 ; 转区功能配置
-; 转区代码页和字符集直接使用[Codepage]中的TargetCodepage和[Font]中的Charset
+; 转区字符集直接使用[Font]中的Charset
+; 代码页 (932=日文, 936=简体中文, 950=繁体中文)
+LocaleCodepage=932
 ; 区域设置ID (1041=日文, 2052=简体中文, 1028=繁体中文)
 LocaleId=1041
 ; 时区 (Tokyo Standard Time=东京时区, China Standard Time=中国标准时间)
@@ -153,15 +145,7 @@ LogFile=celica_hook.log
 - **FontWidth**: 字体宽度，0表示不修改
 - **FontWeight**: 字体粗细，0表示不修改
 
-### 4. 代码页配置
-
-- **SourceCodepage**: 原代码页 (游戏使用的编码)
-  - `932`: 日文Shift-JIS
-  - `936`: 简体中文GBK
-  - `950`: 繁体中文BIG5
-- **TargetCodepage**: 目标代码页 (要转换成的编码)
-
-### 5. 窗口标题配置
+### 4. 窗口标题配置
 
 **配置说明：**
 
@@ -181,7 +165,7 @@ LogFile=celica_hook.log
 2. 如果希望修改所有窗口标题，可以将 `OriginalWindowTitle` 留空
 3. 如果希望禁用标题检查直接修改所有标题，可以设置 `EnableTitleCheck=0`
 
-### 6. 启动弹窗功能
+### 5. 启动弹窗功能
 
 **功能说明：**
 
@@ -202,7 +186,7 @@ LogFile=celica_hook.log
 - 弹窗为系统模态对话框，确保用户必须处理
 - 如果用户取消弹窗，DLL加载将失败
 
-### 7. Locale Emulator转区功能配置
+### 6. Locale Emulator转区功能配置
 
 **功能说明：**
 
@@ -210,6 +194,10 @@ LogFile=celica_hook.log
 
 **配置参数：**
 
+- **LocaleCodepage**: 原代码页 (游戏使用的编码)
+  - `932`: 日文Shift-JIS
+  - `936`: 简体中文GBK
+  - `950`: 繁体中文BIG5
 - **LocaleId**: 区域设置ID
   - `1041`: 日文
   - `2052`: 简体中文  
@@ -220,7 +208,7 @@ LogFile=celica_hook.log
 
 **重要说明：**
 
-- 转区功能**直接使用[Codepage]中的TargetCodepage和[Font]中的Charset**，无需重复设置
+- 转区功能**直接使用[Font]中的Charset**
 - 当系统代码页与目标代码页不同时，会自动触发转区操作
 - 转区操作会重新启动游戏进程
 - 需要自备[Locale Emulator](https://github.com/xupefei/Locale-Emulator.git)的`LoaderDll.dll`和`LocaleEmulator.dll`文件，请确保这两个文件存在于游戏目录

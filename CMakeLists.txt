@@ -31,7 +31,6 @@ add_library(CELICA_HOOK SHARED
     src/hook_manager.cpp
     src/file_redirect_hook.cpp
     src/font_hook.cpp
-    src/codepage_hook.cpp
     src/window_title_hook.cpp
     src/logger.cpp
     src/config_manager.cpp
@@ -55,7 +54,6 @@ add_executable(CELICA_HOOK_TEST
     src/hook_manager.cpp
     src/file_redirect_hook.cpp
     src/font_hook.cpp
-    src/codepage_hook.cpp
     src/window_title_hook.cpp
     src/logger.cpp
     src/config_manager.cpp

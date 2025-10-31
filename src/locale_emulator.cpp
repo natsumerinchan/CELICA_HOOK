@@ -119,10 +119,10 @@ bool LocaleEmulator::initialize() {
     }
     
     // 设置转区配置
-    // 直接使用[Codepage]中的TargetCodepage和[Font]中的Charset
-    m_codepage = config.targetCodepage;
+    // 直接使用[Font]中的Charset
+    m_codepage = config.localeCodepage;
     m_localeId = config.localeId;
-    m_charset = config.charset;
+    m_charset = config.localeCharset;
     m_timezone = config.timezone;
     
     Logger::getInstance().log(L"转区功能已初始化");

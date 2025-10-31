@@ -1,7 +1,6 @@
 #include "hook_manager.h"
 #include "file_redirect_hook.h"
 #include "font_hook.h"
-#include "codepage_hook.h"
 #include "window_title_hook.h"
 #include "detours.h"
 
@@ -33,11 +32,6 @@ bool HookManager::initialize() {
     
     // 安装字体hook
     if (!installFontHooks()) {
-        success = false;
-    }
-    
-    // 安装代码页hook
-    if (!installCodepageHooks()) {
         success = false;
     }
     
@@ -77,7 +71,6 @@ void HookManager::shutdown() {
     // 卸载所有hook
     FileRedirectHook::getInstance().shutdown();
     FontHook::getInstance().shutdown();
-    CodepageHook::getInstance().shutdown();
     WindowTitleHook::getInstance().shutdown();
     
     // 提交事务
@@ -110,18 +103,6 @@ bool HookManager::installFontHooks() {
     
     bool success = FontHook::getInstance().initialize();
     logHookStatus("字体hook", success);
-    return success;
-}
-
-bool HookManager::installCodepageHooks() {
-    const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableCodepageHook) {
-        Logger::getInstance().log(L"代码页hook已禁用");
-        return true;
-    }
-    
-    bool success = CodepageHook::getInstance().initialize();
-    logHookStatus("代码页hook", success);
     return success;
 }
 

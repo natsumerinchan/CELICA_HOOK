@@ -81,10 +81,10 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
         m_config.enableFileRedirect = (value == L"1");
     } else if (key == L"General.EnableFontHook") {
         m_config.enableFontHook = (value == L"1");
-    } else if (key == L"General.EnableCodepageHook") {
-        m_config.enableCodepageHook = (value == L"1");
     } else if (key == L"General.EnableWindowTitleHook") {
         m_config.enableWindowTitleHook = (value == L"1");
+    } else if (key == L"General.EnableLocaleEmulation") {
+        m_config.enableLocaleEmulation = (value == L"1");
     } else if (key == L"General.EnableLogging") {
         m_config.enableLogging = (value == L"1");
     } else if (key == L"FileRedirect.RedirectFolder") {
@@ -92,25 +92,21 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
     } else if (key == L"Font.FontName") {
         m_config.fontName = value;
     } else if (key == L"Font.Charset") {
-        m_config.charset = Utils::hexStringToInt(value);
+        m_config.localeCharset = Utils::hexStringToInt(value);
     } else if (key == L"Font.FontWeight") {
         m_config.fontWeight = std::stoi(value);
     } else if (key == L"Font.FontHeight") {
         m_config.fontHeight = std::stoi(value);
     } else if (key == L"Font.FontWidth") {
         m_config.fontWidth = std::stoi(value);
-    } else if (key == L"Codepage.SourceCodepage") {
-        m_config.sourceCodepage = std::stoi(value);
-    } else if (key == L"Codepage.TargetCodepage") {
-        m_config.targetCodepage = std::stoi(value);
     } else if (key == L"WindowTitle.EnableTitleCheck") {
         m_config.enableTitleCheck = (value == L"1");
     } else if (key == L"WindowTitle.OriginalWindowTitle") {
         m_config.originalWindowTitle = value;
     } else if (key == L"WindowTitle.NewWindowTitle") {
         m_config.newWindowTitle = value;
-    } else if (key == L"General.EnableLocaleEmulation") {
-        m_config.enableLocaleEmulation = (value == L"1");
+    } else if (key == L"LocaleEmulation.LocaleCodepage") {
+        m_config.localeCodepage = std::stoi(value);
     } else if (key == L"LocaleEmulation.LocaleId") {
         m_config.localeId = std::stoi(value);
     } else if (key == L"LocaleEmulation.Timezone") {
