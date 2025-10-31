@@ -35,7 +35,9 @@ struct HookConfig {
     bool enableWindowTitleHook = false;
     
     // 文件重定向配置
+    bool enableExtensionCheck = true;
     std::wstring redirectFolder = L"CHSFiles";
+    std::wstring redirectExtensions = L".txt";
     
     // 字体配置
     std::wstring fontName = L"";

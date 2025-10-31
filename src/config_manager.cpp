@@ -89,6 +89,12 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
         m_config.enableLogging = (value == L"1");
     } else if (key == L"FileRedirect.RedirectFolder") {
         m_config.redirectFolder = value;
+    } else if (key == L"FileRedirect.EnableExtensionCheck") {
+        m_config.enableExtensionCheck = (value == L"1");
+        Logger::getInstance().log(L"设置扩展名检查: " + value);
+    } else if (key == L"FileRedirect.RedirectExtensions") {
+        m_config.redirectExtensions = value;
+        Logger::getInstance().log(L"设置重定向扩展名: " + value);
     } else if (key == L"Font.FontName") {
         m_config.fontName = value;
     } else if (key == L"Font.Charset") {
