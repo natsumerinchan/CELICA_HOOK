@@ -21,6 +21,7 @@ private:
     
     std::ofstream m_logFile;
     bool m_initialized = false;
+    bool m_useDebugOutput = false;
     
     void writeBOM();
     std::string wstringToUTF8(const std::wstring& wstr);

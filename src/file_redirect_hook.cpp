@@ -177,7 +177,7 @@ std::wstring FileRedirectHook::getRedirectedPath(const std::wstring& originalPat
 
         // 检查重定向文件是否存在
         if (Utils::fileExists(redirectedPath)) {
-            Logger::getInstance().log(L"成功重定向: " + originalPath + L" -> " + redirectedPath);
+            // Logger::getInstance().log(L"成功重定向: " + originalPath + L" -> " + redirectedPath);
             return redirectedPath;
         } else {
             // Logger::getInstance().log(L"重定向文件不存在: " + redirectedPath);

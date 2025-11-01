@@ -12,9 +12,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 设置目标平台为32位x86
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(WARNING "Building 32-bit project on 64-bit system")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m32")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m32")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -m32")
+    # 对于MSVC，使用平台工具集而不是-m32标志
+    set(CMAKE_GENERATOR_PLATFORM "Win32")
 endif()
 
 # 包含目录

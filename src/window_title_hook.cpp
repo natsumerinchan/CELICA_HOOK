@@ -249,18 +249,18 @@ std::wstring WindowTitleHook::processWindowTitle(const std::wstring& originalTit
     // 如果标题检查被禁用，直接返回原标题
     const HookConfig& config = ConfigManager::getInstance().getConfig();
     if (!config.enableWindowTitleHook) {
-        Logger::getInstance().log(L"窗口标题hook已禁用，返回原标题: " + originalTitle);
+        // Logger::getInstance().log(L"窗口标题hook已禁用，返回原标题: " + originalTitle);
         return originalTitle;
     }
     
     Logger::getInstance().log(L"处理窗口标题: " + originalTitle);
     Logger::getInstance().log(L"配置 - 原标题: " + config.originalWindowTitle);
-    Logger::getInstance().log(L"配置 - 新标题: " + config.newWindowTitle);
+    // Logger::getInstance().log(L"配置 - 新标题: " + config.newWindowTitle);
     Logger::getInstance().log(L"配置 - 启用标题检查: " + std::wstring(config.enableTitleCheck ? L"是" : L"否"));
     
     // 如果不需要检查标题，直接返回原标题
     if (!shouldCheckTitle(originalTitle)) {
-        Logger::getInstance().log(L"跳过标题检查，返回原标题: " + originalTitle);
+        // Logger::getInstance().log(L"跳过标题检查，返回原标题: " + originalTitle);
         return originalTitle;
     }
     

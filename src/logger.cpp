@@ -24,11 +24,16 @@ bool Logger::initialize(const std::wstring& logFile) {
     // 使用trunc模式打开文件，清空之前的内容
     m_logFile.open(logFile, std::ios::out | std::ios::trunc);
     if (!m_logFile.is_open()) {
-        return false;
+        // 回退到调试输出
+        OutputDebugStringW(L"日志文件打开失败，使用调试输出\n");
+        m_useDebugOutput = true;
+        m_initialized = true;
+        return true;
     }
     
     writeBOM();
     m_initialized = true;
+    m_useDebugOutput = false;
     
     log(L"日志系统初始化完成");
     return true;
@@ -51,8 +56,12 @@ void Logger::log(const std::string& message) {
 void Logger::log(const std::wstring& message) {
     if (!m_initialized) return;
     
-    std::string utf8Message = wstringToUTF8(message);
-    log(utf8Message);
+    if (m_useDebugOutput) {
+        OutputDebugStringW((getCurrentTime() + L" " + message + L"\n").c_str());
+    } else {
+        std::string utf8Message = wstringToUTF8(message);
+        log(utf8Message);
+    }
 }
 
 void Logger::close() {

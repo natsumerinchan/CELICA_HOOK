@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <vector>
 
 std::wstring Utils::stringToWstring(const std::string& str) {
     if (str.empty()) return L"";
@@ -106,4 +107,64 @@ std::wstring Utils::intToHexString(int value) {
     std::wstringstream ss;
     ss << L"0x" << std::hex << std::uppercase << value;
     return ss.str();
+}
+
+// 安全验证函数实现
+
+std::wstring Utils::normalizePath(const std::wstring& path) {
+    std::wstring normalized = path;
+    std::replace(normalized.begin(), normalized.end(), L'/', L'\\');
+    
+    // 移除路径遍历攻击
+    size_t pos;
+    while ((pos = normalized.find(L"..\\")) != std::wstring::npos) {
+        normalized.erase(pos, 3);
+    }
+    
+    return normalized;
+}
+
+bool Utils::isValidExtension(const std::wstring& filename, const std::wstring& allowedExtensions) {
+    if (allowedExtensions.empty()) return true;
+    
+    size_t dotPos = filename.find_last_of(L'.');
+    if (dotPos == std::wstring::npos) return false;
+    
+    std::wstring ext = filename.substr(dotPos);
+    std::wistringstream iss(allowedExtensions);
+    std::wstring allowedExt;
+    
+    while (std::getline(iss, allowedExt, L',')) {
+        // 移除前后空格
+        allowedExt.erase(0, allowedExt.find_first_not_of(L" \t"));
+        allowedExt.erase(allowedExt.find_last_not_of(L" \t") + 1);
+        
+        if (ext == allowedExt) return true;
+    }
+    
+    return false;
+}
+
+void Utils::findFilesRecursive(const std::wstring& directory, std::vector<std::wstring>& files, const std::wstring& pattern) {
+    std::wstring searchPath = combinePaths(directory, pattern);
+    
+    WIN32_FIND_DATAW findData;
+    HANDLE hFind = FindFirstFileW(searchPath.c_str(), &findData);
+    
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (wcscmp(findData.cFileName, L".") != 0 && wcscmp(findData.cFileName, L"..") != 0) {
+                std::wstring fullPath = combinePaths(directory, findData.cFileName);
+                
+                if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                    // 递归遍历子目录
+                    findFilesRecursive(fullPath, files, pattern);
+                } else {
+                    files.push_back(fullPath);
+                }
+            }
+        } while (FindNextFileW(hFind, &findData) != 0);
+        
+        FindClose(hFind);
+    }
 }
