@@ -266,9 +266,12 @@ std::wstring WindowTitleHook::processWindowTitle(const std::wstring& originalTit
     
     // 检查原标题是否与配置中的预期标题匹配
     if (isTitleMatch(originalTitle, config.originalWindowTitle)) {
-        // 如果匹配，返回新标题
-        Logger::getInstance().log(L"标题匹配成功，修改为: " + config.newWindowTitle);
-        return config.newWindowTitle;
+        // 如果匹配，检查新标题是否为空
+        if (!config.newWindowTitle.empty()) {
+            Logger::getInstance().log(L"标题匹配成功，修改为: " + config.newWindowTitle);
+            return config.newWindowTitle;
+        }
+        Logger::getInstance().log(L"标题匹配成功但新标题为空，返回原标题: " + originalTitle);
     }
     
     // 如果不匹配，返回原标题
