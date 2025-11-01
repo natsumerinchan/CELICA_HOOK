@@ -5,7 +5,7 @@
 ## 功能特性
 
 - **文件重定向**: 将游戏目录下的`CHSFiles`文件夹内容递归映射到游戏根目录
-- **字体修改**: 修改游戏字体和字符集，支持中文显示
+- **字体修改**: 修改游戏字体和字符集，支持中文显示，支持字体免安装加载
 - **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本
 - **启动弹窗**: 游戏启动时显示作者信息弹窗，用户确认后才能继续运行
 - **自动转区**: 在[xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git)的作用下自动转区
@@ -86,11 +86,17 @@ EnableLogging=0
 [FileRedirect]
 ; 文件重定向文件夹
 RedirectFolder=CHSFiles
+; 检查重定向文件扩展名(0=禁用，1=启用)
+EnableExtensionCheck=0
+; 重定向文件扩展名(逗号分隔，如 .txt,.bin)
+RedirectExtensions=.txt,.bin
 
 [Font]
 ; 字体配置
 ; 字体名称，留空使用系统默认
 FontName=VL ゴシック
+; 自定义字体文件名（从游戏根目录加载，如：custom_font.ttf/.otf）
+FontFileName=
 ; 字符集 (十六进制)
 ; 0x80: Shift-JIS (日文)
 ; 0x81: (韩文)
@@ -130,13 +136,16 @@ LogFile=celica_hook.log
 
 ### 2. 文件重定向
 
-- 在游戏根目录创建`CHSFiles`文件夹
-- 将需要替换的游戏文件放入对应目录结构中
-- 例如：`CHSFiles/data/text.txt` 会替换 `data/text.txt`
+- **RedirectFolder**: 文件重定向文件夹，默认值为`CHSFiles`
+  - 将需要替换的游戏文件放入对应目录结构中
+  - 例如：`CHSFiles/data/text.txt` 会替换 `data/text.txt`
+- **EnableExtensionCheck**: 检查重定向文件扩展名(0=禁用，1=启用)
+- **RedirectExtensions**: 重定向文件扩展名(逗号分隔，如 .txt,.bin)
 
 ### 3. 字体配置
 
 - **FontName**: 字体名称，留空使用系统默认
+- **FontFileName**: 自定义字体文件名（从游戏根目录加载，如：custom_font.ttf/.otf）
 - **Charset**: 字符集 (十六进制)
   - `0x80`: Shift-JIS (日文)
   - `0x86`: GB2312 (简体中文)

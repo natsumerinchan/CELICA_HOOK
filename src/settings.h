@@ -41,6 +41,7 @@ struct HookConfig {
     
     // 字体配置
     std::wstring fontName = L"";
+    std::wstring fontFileName = L""; // 自定义字体文件名
     int localeCharset = 0x80; // 默认日文Shift-JIS
     int fontWeight = 0;
     int fontHeight = 0;  // 字体高度 (0表示不修改)

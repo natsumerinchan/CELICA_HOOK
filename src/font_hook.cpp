@@ -3,6 +3,7 @@
 #include "utils.h"
 #include "detours.h"
 #include <string>
+#include <filesystem>
 
 // 使用Windows SDK中已定义的SHIFTJIS_CHARSET
 // #define SHIFTJIS_CHARSET 0x80  // Windows SDK中已定义
@@ -55,6 +56,52 @@ FontHook::~FontHook() {
     shutdown();
 }
 
+// 自定义字体加载函数
+static bool loadCustomFont(const std::wstring& fontFileName) {
+    if (fontFileName.empty()) {
+        Logger::getInstance().log(L"未指定自定义字体文件名");
+        return false;
+    }
+    
+    // 获取游戏根目录
+    wchar_t gameDir[MAX_PATH];
+    GetCurrentDirectoryW(MAX_PATH, gameDir);
+    std::wstring fontPath = std::wstring(gameDir) + L"\\" + fontFileName;
+    
+    // 检查字体文件是否存在
+    if (!std::filesystem::exists(fontPath)) {
+        Logger::getInstance().log(L"自定义字体文件不存在: " + fontPath);
+        return false;
+    }
+    
+    // 加载字体
+    if (AddFontResourceExW(fontPath.c_str(), FR_PRIVATE, 0) != 0) {
+        Logger::getInstance().log(L"成功加载自定义字体: " + fontPath);
+        return true;
+    } else {
+        Logger::getInstance().log(L"加载自定义字体失败: " + fontPath);
+        return false;
+    }
+}
+
+// 检查字体是否可用
+static bool isFontAvailable(const std::wstring& fontName) {
+    HDC hdc = GetDC(NULL);
+    if (!hdc) return false;
+    
+    LOGFONTW lf = {0};
+    wcsncpy_s(lf.lfFaceName, LF_FACESIZE, fontName.c_str(), _TRUNCATE);
+    lf.lfCharSet = DEFAULT_CHARSET;
+    
+    EnumFontFamiliesExW(hdc, &lf, [](const LOGFONTW* lplf, const TEXTMETRICW* lptm, DWORD dwType, LPARAM lParam) -> int {
+        *reinterpret_cast<bool*>(lParam) = true;
+        return 0; // 停止枚举
+    }, reinterpret_cast<LPARAM>(&lf), 0);
+    
+    ReleaseDC(NULL, hdc);
+    return lf.lfFaceName[0] != 0;
+}
+
 bool FontHook::initialize() {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
     if (!config.enableFontHook) {
@@ -63,6 +110,15 @@ bool FontHook::initialize() {
     }
     
     Logger::getInstance().log(L"初始化字体hook");
+    
+    // 加载自定义字体
+    if (!config.fontFileName.empty()) {
+        if (loadCustomFont(config.fontFileName)) {
+            Logger::getInstance().log(L"自定义字体加载成功");
+        } else {
+            Logger::getInstance().log(L"自定义字体加载失败，将使用系统字体");
+        }
+    }
     
     // Hook CreateFontA
     originalCreateFontA = CreateFontA;
@@ -281,9 +337,17 @@ HFONT WINAPI FontHook::HookedCreateFontW(
     
     LPCWSTR newFaceName = lpszFace;
     std::wstring customFaceName;
+    
+    // 优先使用自定义字体，如果不可用则回退到系统字体
     if (!config.fontName.empty()) {
         customFaceName = config.fontName;
-        newFaceName = customFaceName.c_str();
+        // 检查自定义字体是否可用
+        if (isFontAvailable(customFaceName)) {
+            newFaceName = customFaceName.c_str();
+            Logger::getInstance().log(L"使用自定义字体: " + customFaceName);
+        } else {
+            Logger::getInstance().log(L"自定义字体不可用，使用系统字体: " + std::wstring(lpszFace ? lpszFace : L"默认字体"));
+        }
     }
     
     Logger::getInstance().log(L"新字体(W): " + std::wstring(newFaceName) +
@@ -397,9 +461,16 @@ void FontHook::modifyFontParams(LOGFONTA* lf) {
         lf->lfCharSet = config.localeCharset;
     }
     
+    // 优先使用自定义字体，如果不可用则保持原字体
     if (!config.fontName.empty()) {
-        std::string fontNameA = Utils::wstringToANSI(config.fontName);
-        strncpy_s(lf->lfFaceName, LF_FACESIZE, fontNameA.c_str(), _TRUNCATE);
+        std::wstring customFaceName = config.fontName;
+        if (isFontAvailable(customFaceName)) {
+            std::string fontNameA = Utils::wstringToANSI(customFaceName);
+            strncpy_s(lf->lfFaceName, LF_FACESIZE, fontNameA.c_str(), _TRUNCATE);
+            Logger::getInstance().log(L"使用自定义字体: " + customFaceName);
+        } else {
+            Logger::getInstance().log(L"自定义字体不可用，保持原字体");
+        }
     }
     
     Logger::getInstance().log(L"字体修改: Charset=" + Utils::intToHexString(lf->lfCharSet) +
@@ -489,14 +560,8 @@ int WINAPI FontHook::HookedEnumFontFamiliesExA(
     logfontW.lfQuality = lpLogfont->lfQuality;
     logfontW.lfPitchAndFamily = lpLogfont->lfPitchAndFamily;
     
-    // 设置字体名称
-    if (!config.fontName.empty()) {
-        // 使用配置的字体名称
-        wcsncpy_s(logfontW.lfFaceName, LF_FACESIZE, config.fontName.c_str(), _TRUNCATE);
-    } else {
-        // 使用原始字体名称（转换为宽字符）
-        wcsncpy_s(logfontW.lfFaceName, LF_FACESIZE, originalFaceNameW.c_str(), _TRUNCATE);
-    }
+    // 设置字体名称 - 不修改字体名称，保持原始字体枚举
+    wcsncpy_s(logfontW.lfFaceName, LF_FACESIZE, originalFaceNameW.c_str(), _TRUNCATE);
     
     // 修改字符集
     if (config.localeCharset > 0) {
@@ -595,10 +660,8 @@ int WINAPI FontHook::HookedEnumFontFamiliesExW(
     // 创建修改后的 LOGFONTW 结构
     LOGFONTW modifiedLogfont = *lpLogfont;
     
-    // 修改字体参数
-    if (!config.fontName.empty()) {
-        wcsncpy_s(modifiedLogfont.lfFaceName, LF_FACESIZE, config.fontName.c_str(), _TRUNCATE);
-    }
+    // 修改字体参数 - 不修改字体名称，保持原始字体枚举
+    // 字体名称保持不变，避免影响游戏正常的字体枚举功能
     
     if (config.localeCharset > 0) {
         modifiedLogfont.lfCharSet = config.localeCharset;

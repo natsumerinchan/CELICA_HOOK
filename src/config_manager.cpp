@@ -97,6 +97,8 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
         Logger::getInstance().log(L"设置重定向扩展名: " + value);
     } else if (key == L"Font.FontName") {
         m_config.fontName = value;
+    } else if (key == L"Font.FontFileName") {
+        m_config.fontFileName = value;
     } else if (key == L"Font.Charset") {
         m_config.localeCharset = Utils::hexStringToInt(value);
     } else if (key == L"Font.FontWeight") {
