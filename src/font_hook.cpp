@@ -120,64 +120,97 @@ bool FontHook::initialize() {
         }
     }
     
-    // Hook CreateFontA
-    originalCreateFontA = CreateFontA;
-    if (DetourAttach(&(PVOID&)originalCreateFontA, HookedCreateFontA) != NO_ERROR) {
-        Logger::getInstance().log(L"Hook CreateFontA 失败");
-        return false;
+    // 根据细粒度开关决定是否安装各个hook
+    bool anyHookInstalled = false;
+    
+    // Hook CreateFontA (如果启用)
+    if (config.enableCreateFontA) {
+        originalCreateFontA = CreateFontA;
+        if (DetourAttach(&(PVOID&)originalCreateFontA, HookedCreateFontA) != NO_ERROR) {
+            Logger::getInstance().log(L"Hook CreateFontA 失败");
+            return false;
+        }
+        anyHookInstalled = true;
+        Logger::getInstance().log(L"Hook CreateFontA 已安装");
     }
     
-    // Hook CreateFontW
-    originalCreateFontW = CreateFontW;
-    if (DetourAttach(&(PVOID&)originalCreateFontW, HookedCreateFontW) != NO_ERROR) {
-        Logger::getInstance().log(L"Hook CreateFontW 失败");
-        DetourDetach(&(PVOID&)originalCreateFontA, HookedCreateFontA);
-        return false;
+    // Hook CreateFontW (如果启用)
+    if (config.enableCreateFontW) {
+        originalCreateFontW = CreateFontW;
+        if (DetourAttach(&(PVOID&)originalCreateFontW, HookedCreateFontW) != NO_ERROR) {
+            Logger::getInstance().log(L"Hook CreateFontW 失败");
+            if (originalCreateFontA) {
+                DetourDetach(&(PVOID&)originalCreateFontA, HookedCreateFontA);
+            }
+            return false;
+        }
+        anyHookInstalled = true;
+        Logger::getInstance().log(L"Hook CreateFontW 已安装");
     }
     
-    // Hook CreateFontIndirectA
-    originalCreateFontIndirectA = CreateFontIndirectA;
-    if (DetourAttach(&(PVOID&)originalCreateFontIndirectA, HookedCreateFontIndirectA) != NO_ERROR) {
-        Logger::getInstance().log(L"Hook CreateFontIndirectA 失败");
-        DetourDetach(&(PVOID&)originalCreateFontA, HookedCreateFontA);
-        DetourDetach(&(PVOID&)originalCreateFontW, HookedCreateFontW);
-        return false;
+    // Hook CreateFontIndirectA (如果启用)
+    if (config.enableCreateFontIndirectA) {
+        originalCreateFontIndirectA = CreateFontIndirectA;
+        if (DetourAttach(&(PVOID&)originalCreateFontIndirectA, HookedCreateFontIndirectA) != NO_ERROR) {
+            Logger::getInstance().log(L"Hook CreateFontIndirectA 失败");
+            if (originalCreateFontA) {
+                DetourDetach(&(PVOID&)originalCreateFontA, HookedCreateFontA);
+            }
+            if (originalCreateFontW) {
+                DetourDetach(&(PVOID&)originalCreateFontW, HookedCreateFontW);
+            }
+            return false;
+        }
+        anyHookInstalled = true;
+        Logger::getInstance().log(L"Hook CreateFontIndirectA 已安装");
     }
     
-    // Hook CreateFontIndirectW
-    originalCreateFontIndirectW = CreateFontIndirectW;
-    if (DetourAttach(&(PVOID&)originalCreateFontIndirectW, HookedCreateFontIndirectW) != NO_ERROR) {
-        Logger::getInstance().log(L"Hook CreateFontIndirectW 失败");
-        DetourDetach(&(PVOID&)originalCreateFontA, HookedCreateFontA);
-        DetourDetach(&(PVOID&)originalCreateFontW, HookedCreateFontW);
-        DetourDetach(&(PVOID&)originalCreateFontIndirectA, HookedCreateFontIndirectA);
-        return false;
+    // Hook CreateFontIndirectW (如果启用)
+    if (config.enableCreateFontIndirectW) {
+        originalCreateFontIndirectW = CreateFontIndirectW;
+        if (DetourAttach(&(PVOID&)originalCreateFontIndirectW, HookedCreateFontIndirectW) != NO_ERROR) {
+            Logger::getInstance().log(L"Hook CreateFontIndirectW 失败");
+            if (originalCreateFontA) {
+                DetourDetach(&(PVOID&)originalCreateFontA, HookedCreateFontA);
+            }
+            if (originalCreateFontW) {
+                DetourDetach(&(PVOID&)originalCreateFontW, HookedCreateFontW);
+            }
+            if (originalCreateFontIndirectA) {
+                DetourDetach(&(PVOID&)originalCreateFontIndirectA, HookedCreateFontIndirectA);
+            }
+            return false;
+        }
+        anyHookInstalled = true;
+        Logger::getInstance().log(L"Hook CreateFontIndirectW 已安装");
     }
     
-    // Hook EnumFontFamiliesExA
+    // Hook EnumFontFamiliesExA (总是安装，因为它是字体枚举功能)
     originalEnumFontFamiliesExA = EnumFontFamiliesExA;
     if (DetourAttach(&(PVOID&)originalEnumFontFamiliesExA, HookedEnumFontFamiliesExA) != NO_ERROR) {
         Logger::getInstance().log(L"Hook EnumFontFamiliesExA 失败");
-        DetourDetach(&(PVOID&)originalCreateFontA, HookedCreateFontA);
-        DetourDetach(&(PVOID&)originalCreateFontW, HookedCreateFontW);
-        DetourDetach(&(PVOID&)originalCreateFontIndirectA, HookedCreateFontIndirectA);
-        DetourDetach(&(PVOID&)originalCreateFontIndirectW, HookedCreateFontIndirectW);
+        shutdown();
         return false;
     }
+    anyHookInstalled = true;
+    Logger::getInstance().log(L"Hook EnumFontFamiliesExA 已安装");
     
-    // Hook EnumFontFamiliesExW
+    // Hook EnumFontFamiliesExW (总是安装，因为它是字体枚举功能)
     originalEnumFontFamiliesExW = EnumFontFamiliesExW;
     if (DetourAttach(&(PVOID&)originalEnumFontFamiliesExW, HookedEnumFontFamiliesExW) != NO_ERROR) {
         Logger::getInstance().log(L"Hook EnumFontFamiliesExW 失败");
-        DetourDetach(&(PVOID&)originalCreateFontA, HookedCreateFontA);
-        DetourDetach(&(PVOID&)originalCreateFontW, HookedCreateFontW);
-        DetourDetach(&(PVOID&)originalCreateFontIndirectA, HookedCreateFontIndirectA);
-        DetourDetach(&(PVOID&)originalCreateFontIndirectW, HookedCreateFontIndirectW);
-        DetourDetach(&(PVOID&)originalEnumFontFamiliesExA, HookedEnumFontFamiliesExA);
+        shutdown();
         return false;
     }
+    anyHookInstalled = true;
+    Logger::getInstance().log(L"Hook EnumFontFamiliesExW 已安装");
     
-    Logger::getInstance().log(L"字体hook初始化完成");
+    if (anyHookInstalled) {
+        Logger::getInstance().log(L"字体hook初始化完成");
+    } else {
+        Logger::getInstance().log(L"所有字体hook功能都已禁用，未安装任何hook");
+    }
+    
     return true;
 }
 
@@ -232,12 +265,6 @@ HFONT WINAPI FontHook::HookedCreateFontA(
     LPCSTR lpszFace
 ) {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFontHook) {
-        return originalCreateFontA(nHeight, nWidth, nEscapement, nOrientation,
-                                 fnWeight, fdwItalic, fdwUnderline, fdwStrikeOut,
-                                 fdwCharSet, fdwOutputPrecision, fdwClipPrecision,
-                                 fdwQuality, fdwPitchAndFamily, lpszFace);
-    }
     
     // 记录原始字体信息
     std::string originalFaceName = lpszFace ? std::string(lpszFace) : "默认字体";
@@ -291,10 +318,27 @@ HFONT WINAPI FontHook::HookedCreateFontA(
                             L", Width=" + std::to_wstring(newWidth) +
                             L", Weight=" + std::to_wstring(newWeight));
     
-    return HookedCreateFontW(nHeight, nWidth, nEscapement, nOrientation,
-                           fnWeight, fdwItalic, fdwUnderline, fdwStrikeOut,
-                           fdwCharSet, fdwOutputPrecision, fdwClipPrecision,
-                           fdwQuality, fdwPitchAndFamily, wFaceName.c_str());
+    // 独立处理，不依赖 HookedCreateFontW
+    LPCWSTR newFaceName = wFaceName.c_str();
+    std::wstring customFaceName;
+    
+    // 优先使用自定义字体，如果不可用则回退到系统字体
+    if (!config.fontName.empty()) {
+        customFaceName = config.fontName;
+        // 检查自定义字体是否可用
+        if (isFontAvailable(customFaceName)) {
+            newFaceName = customFaceName.c_str();
+            Logger::getInstance().log(L"使用自定义字体: " + customFaceName);
+        } else {
+            Logger::getInstance().log(L"自定义字体不可用，使用系统字体: " + wFaceName);
+        }
+    }
+    
+    // 直接调用系统 CreateFontW 函数，传递修改后的参数
+    return CreateFontW(newHeight, nWidth, nEscapement, nOrientation,
+                     newWeight, fdwItalic, fdwUnderline, fdwStrikeOut,
+                     newCharSet, fdwOutputPrecision, fdwClipPrecision,
+                     fdwQuality, fdwPitchAndFamily, newFaceName);
 }
 
 HFONT WINAPI FontHook::HookedCreateFontW(
@@ -314,12 +358,6 @@ HFONT WINAPI FontHook::HookedCreateFontW(
     LPCWSTR lpszFace
 ) {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFontHook) {
-        return originalCreateFontW(nHeight, nWidth, nEscapement, nOrientation,
-                                 fnWeight, fdwItalic, fdwUnderline, fdwStrikeOut,
-                                 fdwCharSet, fdwOutputPrecision, fdwClipPrecision,
-                                 fdwQuality, fdwPitchAndFamily, lpszFace);
-    }
     
     // 记录原始字体信息
     std::wstring originalFaceName = lpszFace ? std::wstring(lpszFace) : L"默认字体";
@@ -364,7 +402,7 @@ HFONT WINAPI FontHook::HookedCreateFontW(
 
 HFONT WINAPI FontHook::HookedCreateFontIndirectA(const LOGFONTA* lplf) {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFontHook || !lplf) {
+    if (!lplf) {
         return originalCreateFontIndirectA(lplf);
     }
     
@@ -410,7 +448,7 @@ HFONT WINAPI FontHook::HookedCreateFontIndirectA(const LOGFONTA* lplf) {
 
 HFONT WINAPI FontHook::HookedCreateFontIndirectW(const LOGFONTW* lplf) {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFontHook || !lplf) {
+    if (!lplf) {
         return originalCreateFontIndirectW(lplf);
     }
     

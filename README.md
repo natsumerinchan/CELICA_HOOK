@@ -95,7 +95,7 @@ RedirectExtensions=.txt,.bin
 ; 字体配置
 ; 字体名称，留空使用系统默认
 FontName=VL ゴシック
-; 自定义字体文件名（从游戏根目录加载，如：custom_font.ttf/.otf）
+; 自定义字体文件名（从游戏根目录加载，如：custom_font.ttf）
 FontFileName=
 ; 字符集 (十六进制)
 ; 0x80: Shift-JIS (日文)
@@ -109,6 +109,16 @@ FontHeight=0
 FontWidth=0
 ; 字体粗细 (0表示不修改)
 FontWeight=0
+
+; 字体hook细粒度控制 (1=启用, 0=禁用)
+; CreateFontA
+EnableCreateFontA=1
+; CreateFontW
+EnableCreateFontW=0
+; CreateFontIndirectA
+EnableCreateFontIndirectA=1
+; CreateFontIndirectW
+EnableCreateFontIndirectW=0
 
 [WindowTitle]
 ; 窗口标题配置
@@ -153,6 +163,7 @@ LogFile=celica_hook.log
 - **FontHeight**: 字体高度，0表示不修改
 - **FontWidth**: 字体宽度，0表示不修改
 - **FontWeight**: 字体粗细，0表示不修改
+- 支持精准启用和禁用对`CreateFontA`、`CreateFontW`、`CreateFontIndirectA`及`CreateFontIndirectW`的hook
 
 ### 4. 窗口标题配置
 

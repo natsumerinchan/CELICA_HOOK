@@ -113,6 +113,14 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
         m_config.fontName = value;
     } else if (key == L"Font.FontFileName") {
         m_config.fontFileName = value;
+    } else if (key == L"Font.EnableCreateFontA") {
+        m_config.enableCreateFontA = (value == L"1");
+    } else if (key == L"Font.EnableCreateFontW") {
+        m_config.enableCreateFontW = (value == L"1");
+    } else if (key == L"Font.EnableCreateFontIndirectA") {
+        m_config.enableCreateFontIndirectA = (value == L"1");
+    } else if (key == L"Font.EnableCreateFontIndirectW") {
+        m_config.enableCreateFontIndirectW = (value == L"1");
     } else if (key == L"Font.Charset") {
         m_config.localeCharset = Utils::hexStringToInt(value);
     } else if (key == L"Font.FontWeight") {

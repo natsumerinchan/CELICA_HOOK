@@ -47,6 +47,12 @@ struct HookConfig {
     int fontHeight = 0;  // 字体高度 (0表示不修改)
     int fontWidth = 0;   // 字体宽度 (0表示不修改)
     
+    // 字体hook细粒度控制
+    bool enableCreateFontA = true;           // HookedCreateFontA开关
+    bool enableCreateFontW = true;           // HookedCreateFontW开关
+    bool enableCreateFontIndirectA = true;   // HookedCreateFontIndirectA开关
+    bool enableCreateFontIndirectW = true;   // HookedCreateFontIndirectW开关
+    
     // 窗口标题配置
     bool enableTitleCheck = true;        // 是否启用标题检查
     std::wstring originalWindowTitle = L"";  // 原标题
