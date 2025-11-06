@@ -1,5 +1,5 @@
 #include "hook_manager.h"
-#include "file_redirect_hook.h"
+#include "file_hook.h"
 #include "font_hook.h"
 #include "window_title_hook.h"
 #include "detours.h"
@@ -84,13 +84,13 @@ void HookManager::shutdown() {
 
 bool HookManager::installFileRedirectHooks() {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFileRedirect) {
-        Logger::getInstance().log(L"文件重定向hook已禁用");
+    if (!config.enableFileRedirect && !config.enableFileSpoofing) {
+        Logger::getInstance().log(L"文件重定向和文件欺骗hook已禁用");
         return true;
     }
     
     bool success = FileRedirectHook::getInstance().initialize();
-    logHookStatus("文件重定向hook", success);
+    logHookStatus("文件hook", success);
     return success;
 }
 

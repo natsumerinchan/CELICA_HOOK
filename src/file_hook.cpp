@@ -1,4 +1,4 @@
-#include "file_redirect_hook.h"
+#include "file_hook.h"
 #include "settings.h"
 #include "utils.h"
 #include "detours.h"
@@ -22,12 +22,14 @@ FileRedirectHook::~FileRedirectHook() {
 
 bool FileRedirectHook::initialize() {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFileRedirect) {
-        Logger::getInstance().log(L"文件重定向功能已禁用");
+    
+    // 如果文件重定向和文件欺骗都禁用，则不需要hook
+    if (!config.enableFileRedirect && !config.enableFileSpoofing) {
+        Logger::getInstance().log(L"文件重定向和文件欺骗功能都已禁用");
         return true;
     }
     
-    Logger::getInstance().log(L"初始化文件重定向hook");
+    Logger::getInstance().log(L"初始化文件hook");
     
     // Hook CreateFileA
     originalCreateFileA = CreateFileA;
@@ -44,7 +46,7 @@ bool FileRedirectHook::initialize() {
         return false;
     }
     
-    Logger::getInstance().log(L"文件重定向hook初始化完成");
+    Logger::getInstance().log(L"文件hook初始化完成");
     return true;
 }
 
@@ -72,21 +74,28 @@ HANDLE WINAPI FileRedirectHook::HookedCreateFileA(
     HANDLE hTemplateFile
 ) {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFileRedirect) {
-        return originalCreateFileA(lpFileName, dwDesiredAccess, dwShareMode,
-                                 lpSecurityAttributes, dwCreationDisposition,
-                                 dwFlagsAndAttributes, hTemplateFile);
+    
+    // 首先检查文件重定向（优先级最高）
+    if (config.enableFileRedirect) {
+        std::wstring wFileName = Utils::stringToWstring(lpFileName);
+        std::wstring redirectedPath = getRedirectedPath(wFileName);
+        
+        if (redirectedPath != wFileName) {
+            Logger::getInstance().log(L"文件重定向(A): " + wFileName + L" -> " + redirectedPath);
+            std::string redirectedPathA = Utils::wstringToString(redirectedPath);
+            return originalCreateFileW(Utils::stringToWstring(redirectedPathA).c_str(),
+                                     dwDesiredAccess, dwShareMode, lpSecurityAttributes,
+                                     dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
+        }
     }
     
-    std::wstring wFileName = Utils::stringToWstring(lpFileName);
-    std::wstring redirectedPath = getRedirectedPath(wFileName);
-    
-    if (redirectedPath != wFileName) {
-        Logger::getInstance().log(L"文件重定向(A): " + wFileName + L" -> " + redirectedPath);
-        std::string redirectedPathA = Utils::wstringToString(redirectedPath);
-        return originalCreateFileW(Utils::stringToWstring(redirectedPathA).c_str(),
-                                 dwDesiredAccess, dwShareMode, lpSecurityAttributes,
-                                 dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
+    // 然后检查文件欺骗（优先级低于文件重定向）
+    if (config.enableFileSpoofing) {
+        std::wstring wFileName = Utils::stringToWstring(lpFileName);
+        if (shouldSpoofFile(wFileName)) {
+            Logger::getInstance().log(L"文件欺骗(A): " + wFileName + L" -> 文件不存在");
+            return INVALID_HANDLE_VALUE;
+        }
     }
     
     return originalCreateFileA(lpFileName, dwDesiredAccess, dwShareMode,
@@ -104,20 +113,27 @@ HANDLE WINAPI FileRedirectHook::HookedCreateFileW(
     HANDLE hTemplateFile
 ) {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFileRedirect) {
-        return originalCreateFileW(lpFileName, dwDesiredAccess, dwShareMode,
-                                 lpSecurityAttributes, dwCreationDisposition,
-                                 dwFlagsAndAttributes, hTemplateFile);
+    
+    // 首先检查文件重定向（优先级最高）
+    if (config.enableFileRedirect) {
+        std::wstring fileName(lpFileName);
+        std::wstring redirectedPath = getRedirectedPath(fileName);
+        
+        if (redirectedPath != fileName) {
+            Logger::getInstance().log(L"文件重定向(W): " + fileName + L" -> " + redirectedPath);
+            return originalCreateFileW(redirectedPath.c_str(), dwDesiredAccess, dwShareMode,
+                                     lpSecurityAttributes, dwCreationDisposition,
+                                     dwFlagsAndAttributes, hTemplateFile);
+        }
     }
     
-    std::wstring fileName(lpFileName);
-    std::wstring redirectedPath = getRedirectedPath(fileName);
-    
-    if (redirectedPath != fileName) {
-        Logger::getInstance().log(L"文件重定向(W): " + fileName + L" -> " + redirectedPath);
-        return originalCreateFileW(redirectedPath.c_str(), dwDesiredAccess, dwShareMode,
-                                 lpSecurityAttributes, dwCreationDisposition,
-                                 dwFlagsAndAttributes, hTemplateFile);
+    // 然后检查文件欺骗（优先级低于文件重定向）
+    if (config.enableFileSpoofing) {
+        std::wstring fileName(lpFileName);
+        if (shouldSpoofFile(fileName)) {
+            Logger::getInstance().log(L"文件欺骗(W): " + fileName + L" -> 文件不存在");
+            return INVALID_HANDLE_VALUE;
+        }
     }
     
     return originalCreateFileW(lpFileName, dwDesiredAccess, dwShareMode,
@@ -241,6 +257,95 @@ bool FileRedirectHook::shouldRedirect(const std::wstring& path) {
     // 检查扩展名是否在允许列表中
     for (const auto& allowedExt : allowedExtensions) {
         if (_wcsicmp(ext.c_str(), allowedExt.c_str()) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool FileRedirectHook::shouldSpoofFile(const std::wstring& path) {
+    const HookConfig& config = ConfigManager::getInstance().getConfig();
+    
+    if (!config.enableFileSpoofing) {
+        return false;
+    }
+
+    // 检查路径是否有效
+    if (path.empty()) {
+        return false;
+    }
+
+    // 获取游戏目录
+    std::wstring gameDir = Utils::getModuleDirectory();
+    if (gameDir.empty()) {
+        return false;
+    }
+
+    // 获取相对于游戏目录的路径
+    std::wstring relativePath;
+    if (path.find(gameDir) == 0) {
+        relativePath = path.substr(gameDir.length());
+        if (!relativePath.empty() && (relativePath.front() == L'\\' || relativePath.front() == L'/')) {
+            relativePath = relativePath.substr(1);
+        }
+    } else {
+        // 如果不是游戏目录下的文件，则直接使用路径
+        relativePath = path;
+    }
+
+    // 解析逗号分隔的文件路径列表
+    std::vector<std::wstring> spoofedFiles;
+    size_t start = 0;
+    size_t end = config.spoofedFiles.find(L',');
+    while (end != std::wstring::npos) {
+        std::wstring file = config.spoofedFiles.substr(start, end - start);
+        if (!file.empty()) {
+            spoofedFiles.push_back(file);
+        }
+        start = end + 1;
+        end = config.spoofedFiles.find(L',', start);
+    }
+    // 添加最后一个文件
+    std::wstring lastFile = config.spoofedFiles.substr(start);
+    if (!lastFile.empty()) {
+        spoofedFiles.push_back(lastFile);
+    }
+
+    // 检查文件是否在欺骗列表中
+    for (const auto& spoofedFile : spoofedFiles) {
+        if (_wcsicmp(relativePath.c_str(), spoofedFile.c_str()) == 0) {
+            return true;
+        }
+    }
+
+    // 解析逗号分隔的目录路径列表
+    std::vector<std::wstring> spoofedDirectories;
+    start = 0;
+    end = config.spoofedDirectories.find(L',');
+    while (end != std::wstring::npos) {
+        std::wstring dir = config.spoofedDirectories.substr(start, end - start);
+        if (!dir.empty()) {
+            spoofedDirectories.push_back(dir);
+        }
+        start = end + 1;
+        end = config.spoofedDirectories.find(L',', start);
+    }
+    // 添加最后一个目录
+    std::wstring lastDir = config.spoofedDirectories.substr(start);
+    if (!lastDir.empty()) {
+        spoofedDirectories.push_back(lastDir);
+    }
+
+    // 检查文件是否在欺骗目录中
+    for (const auto& spoofedDir : spoofedDirectories) {
+        // 确保目录路径以反斜杠结尾
+        std::wstring dirWithSlash = spoofedDir;
+        if (!dirWithSlash.empty() && dirWithSlash.back() != L'\\' && dirWithSlash.back() != L'/') {
+            dirWithSlash += L'\\';
+        }
+        
+        if (relativePath.find(dirWithSlash) == 0) {
             return true;
         }
     }

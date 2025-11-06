@@ -39,6 +39,11 @@ struct HookConfig {
     std::wstring redirectFolder = L"CHSFiles";
     std::wstring redirectExtensions = L".txt";
     
+    // 文件欺骗配置
+    bool enableFileSpoofing = false;
+    std::wstring spoofedFiles = L"";  // 逗号分隔的文件路径列表
+    std::wstring spoofedDirectories = L"";  // 逗号分隔的目录路径列表
+    
     // 字体配置
     std::wstring fontName = L"";
     std::wstring fontFileName = L""; // 自定义字体文件名

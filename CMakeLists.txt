@@ -28,7 +28,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 add_library(CELICA_HOOK SHARED
     src/main.cpp
     src/hook_manager.cpp
-    src/file_redirect_hook.cpp
+    src/file_hook.cpp
     src/font_hook.cpp
     src/window_title_hook.cpp
     src/logger.cpp
@@ -51,7 +51,7 @@ target_compile_definitions(CELICA_HOOK PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_N
 add_executable(CELICA_HOOK_TEST
     src/main.cpp
     src/hook_manager.cpp
-    src/file_redirect_hook.cpp
+    src/file_hook.cpp
     src/font_hook.cpp
     src/window_title_hook.cpp
     src/logger.cpp

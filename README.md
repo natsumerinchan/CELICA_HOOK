@@ -5,6 +5,7 @@
 ## 功能特性
 
 - **文件重定向**: 将游戏目录下的`CHSFiles`文件夹内容递归映射到游戏根目录
+- **文件欺骗**: 隐藏特定文件或目录，假装文件不存在
 - **字体修改**: 修改游戏字体和字符集，支持中文显示，支持字体免安装加载
 - **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本
 - **启动弹窗**: 游戏启动时显示作者信息弹窗，用户确认后才能继续运行
@@ -30,8 +31,8 @@ CELICA_HOOK/
     ├── logger.cpp         # 日志系统实现
     ├── hook_manager.h     # Hook管理器头文件
     ├── hook_manager.cpp   # Hook管理器实现
-    ├── file_redirect_hook.h   # 文件重定向hook头文件
-    ├── file_redirect_hook.cpp # 文件重定向hook实现
+    ├── file_hook.h   # 文件hook头文件
+    ├── file_hook.cpp # 文件hook实现
     ├── font_hook.h        # 字体hook头文件
     ├── font_hook.cpp      # 字体hook实现
     ├── window_title_hook.h    # 窗口标题hook头文件
@@ -78,18 +79,25 @@ git clone https://github.com/natsumerinchan/CELICA_HOOK.git
 [General]
 ; 启用(=1)或禁用(=0)功能
 EnableFileRedirect=1
+EnableFileSpoofing=0
 EnableFontHook=1
 EnableWindowTitleHook=0
 EnableLocaleEmulation=0
 EnableLogging=0
 
-[FileRedirect]
+[File]
 ; 文件重定向文件夹
 RedirectFolder=CHSFiles
 ; 检查重定向文件扩展名(0=禁用，1=启用)
 EnableExtensionCheck=0
 ; 重定向文件扩展名(逗号分隔，如 .txt,.bin)
 RedirectExtensions=.txt,.bin
+
+; 文件欺骗功能配置
+; 隐藏的文件路径列表(逗号分隔，基于程序根目录的相对路径(绝对路径亦可)，如 data\file.txt,config\settings.ini)
+SpoofedFiles=
+; 隐藏的目录路径列表(逗号分隔，基于程序根目录的相对路径(绝对路径亦可)，如 temp\logs,cache\data)
+SpoofedDirectories=
 
 [Font]
 ; 字体配置
@@ -152,7 +160,30 @@ LogFile=celica_hook.log
 - **EnableExtensionCheck**: 检查重定向文件扩展名(0=禁用，1=启用)
 - **RedirectExtensions**: 重定向文件扩展名(逗号分隔，如 .txt,.bin)
 
-### 3. 字体配置
+### 3. 文件欺骗
+
+**功能说明：**
+
+文件欺骗功能可以隐藏特定的文件或目录，让程序认为这些文件不存在。当程序尝试访问被欺骗的文件时，会返回文件不存在的错误。
+
+**配置参数：**
+
+- **SpoofedFiles**: 要欺骗的文件路径列表（逗号分隔，基于程序根目录的相对路径）
+  - 例如：`data\file1.txt,config\settings.ini`
+- **SpoofedDirectories**: 要欺骗的目录路径列表（逗号分隔，基于程序根目录的相对路径）
+  - 例如：`temp\logs,cache\data`
+
+**优先级说明：**
+
+- **文件重定向优先级最高**：如果文件在重定向文件夹中存在，会优先进行重定向
+- **文件欺骗优先级次之**：只有当文件不在重定向列表中时，才会检查是否在欺骗列表中
+- **正常文件操作**：如果都不匹配，则执行正常的文件操作
+
+**使用场景：**
+
+- 目标游戏引擎支持免封包读取但需要重命名或删除原封包
+
+### 4. 字体配置
 
 - **FontName**: 字体名称，留空使用系统默认
 - **FontFileName**: 自定义字体文件名（从游戏根目录加载，如：custom_font.ttf/.otf）
@@ -165,7 +196,7 @@ LogFile=celica_hook.log
 - **FontWeight**: 字体粗细，0表示不修改
 - 支持精准启用和禁用对`CreateFontA`、`CreateFontW`、`CreateFontIndirectA`及`CreateFontIndirectW`的hook
 
-### 4. 窗口标题配置
+### 5. 窗口标题配置
 
 **配置说明：**
 
@@ -185,7 +216,7 @@ LogFile=celica_hook.log
 2. 如果希望修改所有窗口标题，可以将 `OriginalWindowTitle` 留空
 3. 如果希望禁用标题检查直接修改所有标题，可以设置 `EnableTitleCheck=0`
 
-### 5. 启动弹窗功能
+### 6. 启动弹窗功能
 
 **功能说明：**
 
@@ -206,7 +237,7 @@ LogFile=celica_hook.log
 - 弹窗为系统模态对话框，确保用户必须处理
 - 如果用户取消弹窗，DLL加载将失败
 
-### 6. Locale Emulator转区功能配置
+### 7. Locale Emulator转区功能配置
 
 **功能说明：**
 

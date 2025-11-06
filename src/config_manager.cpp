@@ -93,6 +93,8 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
     
     if (key == L"General.EnableFileRedirect") {
         m_config.enableFileRedirect = (value == L"1");
+    } else if (key == L"General.EnableFileSpoofing") {
+        m_config.enableFileSpoofing = (value == L"1");
     } else if (key == L"General.EnableFontHook") {
         m_config.enableFontHook = (value == L"1");
     } else if (key == L"General.EnableWindowTitleHook") {
@@ -101,14 +103,18 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
         m_config.enableLocaleEmulation = (value == L"1");
     } else if (key == L"General.EnableLogging") {
         m_config.enableLogging = (value == L"1");
-    } else if (key == L"FileRedirect.RedirectFolder") {
+    } else if (key == L"File.RedirectFolder") {
         m_config.redirectFolder = value;
-    } else if (key == L"FileRedirect.EnableExtensionCheck") {
+    } else if (key == L"File.EnableExtensionCheck") {
         m_config.enableExtensionCheck = (value == L"1");
         Logger::getInstance().log(L"设置扩展名检查: " + value);
-    } else if (key == L"FileRedirect.RedirectExtensions") {
+    } else if (key == L"File.RedirectExtensions") {
         m_config.redirectExtensions = value;
         Logger::getInstance().log(L"设置重定向扩展名: " + value);
+    } else if (key == L"File.SpoofedFiles") {
+        m_config.spoofedFiles = value;
+    } else if (key == L"File.SpoofedDirectories") {
+        m_config.spoofedDirectories = value;
     } else if (key == L"Font.FontName") {
         m_config.fontName = value;
     } else if (key == L"Font.FontFileName") {

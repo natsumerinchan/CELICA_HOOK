@@ -1,6 +1,6 @@
 #pragma once
-#ifndef FILE_REDIRECT_HOOK_H
-#define FILE_REDIRECT_HOOK_H
+#ifndef FILE_HOOK_H
+#define FILE_HOOK_H
 
 #include <windows.h>
 #include "detours.h"
@@ -41,10 +41,11 @@ private:
     
     static std::wstring getRedirectedPath(const std::wstring& originalPath);
     static bool shouldRedirect(const std::wstring& path);
+    static bool shouldSpoofFile(const std::wstring& path);
     
     // 原始函数指针
     static decltype(CreateFileA)* originalCreateFileA;
     static decltype(CreateFileW)* originalCreateFileW;
 };
 
-#endif // FILE_REDIRECT_HOOK_H
+#endif // FILE_HOOK_H
