@@ -3,7 +3,6 @@
 #include "utils.h"
 #include "detours.h"
 #include <string>
-#include <filesystem>
 
 // 使用Windows SDK中已定义的SHIFTJIS_CHARSET
 // #define SHIFTJIS_CHARSET 0x80  // Windows SDK中已定义
@@ -68,8 +67,9 @@ static bool loadCustomFont(const std::wstring& fontFileName) {
     GetCurrentDirectoryW(MAX_PATH, gameDir);
     std::wstring fontPath = std::wstring(gameDir) + L"\\" + fontFileName;
     
-    // 检查字体文件是否存在
-    if (!std::filesystem::exists(fontPath)) {
+    // 检查字体文件是否存在 (使用Windows API确保Windows 7兼容性)
+    DWORD attrib = GetFileAttributesW(fontPath.c_str());
+    if (attrib == INVALID_FILE_ATTRIBUTES || (attrib & FILE_ATTRIBUTE_DIRECTORY)) {
         Logger::getInstance().log(L"自定义字体文件不存在: " + fontPath);
         return false;
     }
