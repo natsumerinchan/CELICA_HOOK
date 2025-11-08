@@ -4,7 +4,6 @@
 #include "logger.h"
 #include "hook_manager.h"
 #include "utils.h"
-#include "splash_dialog.h"
 #include "locale_emulator.h"
 
 // DLL导出函数声明
@@ -52,12 +51,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
                 // 如果转区成功，进程会被重新启动，这里不会继续执行
                 Logger::getInstance().log(L"转区操作已执行，进程将重新启动");
                 return TRUE;
-            }
-            
-            // 显示作者信息弹窗 - 用户必须确认后才能继续
-            if (!SplashDialog::showSplashDialog()) {
-                Logger::getInstance().log(L"用户取消弹窗，DLL加载失败");
-                return FALSE;
             }
             
             // 初始化hook管理器
