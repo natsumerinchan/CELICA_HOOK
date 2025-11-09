@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.15)
 project(CELICA_HOOK)
 
 if(MSVC)
@@ -11,7 +11,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 设置目标平台为32位x86
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(WARNING "Building 32-bit project on 64-bit system")
     # 对于MSVC，使用平台工具集而不是-m32标志
     set(CMAKE_GENERATOR_PLATFORM "Win32")
 endif()
@@ -35,6 +34,7 @@ add_library(CELICA_HOOK SHARED
     src/config_manager.cpp
     src/utils.cpp
     src/locale_emulator.cpp
+    src/author_window.cpp
 )
 
 # 链接detours库
@@ -57,6 +57,7 @@ add_executable(CELICA_HOOK_TEST
     src/config_manager.cpp
     src/utils.cpp
     src/locale_emulator.cpp
+    src/author_window.cpp
 )
 
 # 链接detours库

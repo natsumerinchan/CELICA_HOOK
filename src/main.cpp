@@ -1,10 +1,13 @@
 #include <windows.h>
 #include <iostream>
+#include <thread>
+#include <chrono>
 #include "settings.h"
 #include "logger.h"
 #include "hook_manager.h"
-#include "utils.h"
+#include "utils.h" 
 #include "locale_emulator.h"
+#include "author_window.h"
 
 // DLL导出函数声明
 extern "C" __declspec(dllexport) BOOL WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved);
@@ -16,10 +19,8 @@ struct GlobalInitializer {
         ConfigManager& configManager = ConfigManager::getInstance();
         std::wstring configFile = L"celica_hook.ini";
         
-        if (!configManager.loadConfig(configFile)) {
-            // 如果配置文件不存在，使用默认配置
-            // 此时日志系统可能还未初始化，所以不能记录日志
-        }
+        // 先加载一次配置，主要是为了决定是否启用日志
+        configManager.loadConfig(configFile);
         
         const HookConfig& config = configManager.getConfig();
         
@@ -40,19 +41,29 @@ GlobalInitializer g_initializer;
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
     switch (dwReason) {
         case DLL_PROCESS_ATTACH: {
-            // 禁用线程通知
             DisableThreadLibraryCalls(hModule);
             
             Logger::getInstance().log(L"CELICA_HOOK DLL已加载");
             Logger::getInstance().log(L"进程ID: " + std::to_wstring(GetCurrentProcessId()));
             
-            // 执行转区操作（如果需要）
+            // 执行转区操作
             if (LocaleEmulator::getInstance().performLocaleEmulation()) {
-                // 如果转区成功，进程会被重新启动，这里不会继续执行
                 Logger::getInstance().log(L"转区操作已执行，进程将重新启动");
                 return TRUE;
             }
             
+            // 显示作者署名弹窗
+            AuthorWindow::getInstance().show();
+            
+            // 运行标准消息循环，它会阻塞直到弹窗关闭
+            MSG msg;
+            while (GetMessage(&msg, NULL, 0, 0) > 0) {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
+            
+            Logger::getInstance().log(L"作者窗口已关闭，继续执行初始化...");
+
             // 初始化hook管理器
             if (!HookManager::getInstance().initialize()) {
                 Logger::getInstance().log(L"Hook管理器初始化失败");
@@ -66,10 +77,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
         case DLL_PROCESS_DETACH: {
             Logger::getInstance().log(L"CELICA_HOOK DLL正在卸载");
             
-            // 关闭hook管理器
             HookManager::getInstance().shutdown();
-            
-            // 关闭日志系统
             Logger::getInstance().close();
             break;
         }
@@ -89,9 +97,8 @@ int main() {
     ConfigManager& configManager = ConfigManager::getInstance();
     std::wstring configFile = L"celica_hook.ini";
     
-    if (!configManager.loadConfig(configFile)) {
-        std::wcout << L"配置文件加载失败，使用默认配置" << std::endl;
-    }
+    // 调用 loadConfig 并将其返回值用于判断，而不是调用不存在的 isConfigLoaded
+    bool configLoaded = configManager.loadConfig(configFile);
     
     const HookConfig& config = configManager.getConfig();
     
@@ -108,18 +115,17 @@ int main() {
     std::wcout << L"这是一个DLL注入工具，请使用注入器将CELICA_HOOK.dll注入到目标进程中" << std::endl;
     std::wcout << std::endl;
     
-    // 测试配置加载
-    if (configManager.loadConfig(L"celica_hook.ini")) {
+    // 使用布尔变量 configLoaded 来判断
+    if (configLoaded) {
         std::wcout << L"配置文件加载成功" << std::endl;
         
-        const HookConfig& config = configManager.getConfig();
+        // 这里的 config 变量是上面已经获取过的，可以直接使用
         std::wcout << L"文件重定向: " << (config.enableFileRedirect ? L"启用" : L"禁用") << std::endl;
         std::wcout << L"字体hook: " << (config.enableFontHook ? L"启用" : L"禁用") << std::endl;
         std::wcout << L"重定向文件夹: " << config.redirectFolder << std::endl;
         std::wcout << L"字体字符集: " << Utils::intToHexString(config.localeCharset) << std::endl;
         std::wcout << L"代码页: " << config.localeCodepage << std::endl;
         
-        // 记录配置信息到日志
         if (config.enableLogging) {
             Logger::getInstance().log(L"文件重定向: " + std::wstring(config.enableFileRedirect ? L"启用" : L"禁用"));
             Logger::getInstance().log(L"字体hook: " + std::wstring(config.enableFontHook ? L"启用" : L"禁用"));
@@ -135,7 +141,6 @@ int main() {
     std::wcout << L"按任意键退出..." << std::endl;
     std::cin.get();
     
-    // 关闭日志系统
     if (config.enableLogging) {
         Logger::getInstance().close();
     }

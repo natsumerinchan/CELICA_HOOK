@@ -1,0 +1,429 @@
+#include "author_window.h"
+#include "settings.h"
+#include "logger.h"
+#include <shellapi.h>
+#include <algorithm>
+#include <thread>
+#include <sstream>
+
+// 静态成员初始化
+std::vector<AuthorWindow::LinkInfo> AuthorWindow::m_links;
+bool AuthorWindow::m_linksInitialized = false;
+int AuthorWindow::m_countdown = 5; // 初始化倒计时为5秒
+
+AuthorWindow& AuthorWindow::getInstance() {
+    static AuthorWindow instance;
+    return instance;
+}
+
+void AuthorWindow::show() {
+    if (m_visible) {
+        Logger::getInstance().log(L"AuthorWindow::show() - 窗口已显示，跳过");
+        return;
+    }
+    
+    Logger::getInstance().log(L"AuthorWindow::show() - 开始显示窗口");
+    
+    // 注册窗口类
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc = windowProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = L"AuthorInfoWindow";
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    
+    ATOM classAtom = RegisterClassW(&wc);
+    if (classAtom == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        DWORD error = GetLastError();
+        Logger::getInstance().log(L"AuthorWindow::show() - 注册窗口类失败，错误代码: " + std::to_wstring(error));
+        return;
+    }
+    Logger::getInstance().log(L"AuthorWindow::show() - 窗口类注册成功");
+    
+    // 获取配置管理器实例
+    ConfigManager& configManager = ConfigManager::getInstance();
+    const HookConfig& config = configManager.getConfig();
+    
+    // 确定窗口标题
+    std::wstring windowTitle = L"CELICA_HOOK";
+    if (!config.newWindowTitle.empty()) {
+        windowTitle = config.newWindowTitle;
+    } else if (!config.originalWindowTitle.empty()) {
+        windowTitle = config.originalWindowTitle;
+    }
+    
+    // 计算窗口大小 - 根据标题长度动态调整宽度
+    int titleWidth = calculateDisplayWidth(windowTitle);
+    int windowWidth = (std::max)(600, (std::min)(1200, titleWidth * 8 + 200));
+    int windowHeight = 400;
+    
+    // 获取屏幕尺寸
+    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    
+    // 计算窗口位置（居中）
+    int windowX = (screenWidth - windowWidth) / 2;
+    int windowY = (screenHeight - windowHeight) / 2;
+    
+    // 创建窗口
+    Logger::getInstance().log(L"AuthorWindow::show() - 开始创建窗口...");
+    
+    m_hwnd = CreateWindowExW(
+        WS_EX_TOPMOST,
+        L"AuthorInfoWindow",
+        windowTitle.c_str(),
+        WS_OVERLAPPEDWINDOW, // 移除 WS_VISIBLE, 由 ShowWindow 控制
+        windowX, windowY, windowWidth, windowHeight,
+        NULL, NULL, GetModuleHandle(NULL), this // 最后一个参数可以传递this指针
+    );
+    
+    if (m_hwnd) {
+        Logger::getInstance().log(L"AuthorWindow::show() - 窗口创建成功，句柄: " + std::to_wstring(reinterpret_cast<uintptr_t>(m_hwnd)));
+        m_visible = true;
+        
+        ShowWindow(m_hwnd, SW_SHOW);
+        UpdateWindow(m_hwnd);
+        
+    } else {
+        DWORD error = GetLastError();
+        Logger::getInstance().log(L"AuthorWindow::show() - 窗口创建失败，错误代码: " + std::to_wstring(error));
+    }
+}
+
+void AuthorWindow::close() {
+    if (m_hwnd) {
+        Logger::getInstance().log(L"AuthorWindow::close() - 开始关闭窗口");
+        DestroyWindow(m_hwnd);
+    } else {
+        Logger::getInstance().log(L"AuthorWindow::close() - 窗口句柄为空，无需关闭");
+    }
+}
+
+bool AuthorWindow::isVisible() const {
+    return m_visible;
+}
+
+LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    // 为了避免日志过于冗长，可以过滤掉一些高频消息
+    if (uMsg != WM_MOUSEMOVE && uMsg != WM_SETCURSOR && uMsg != WM_NCHITTEST && uMsg != WM_TIMER) {
+        std::wstringstream msgStream;
+        msgStream << L"AuthorWindow::windowProc() - 收到消息: " << uMsg << L" (0x" << std::hex << uMsg << L")";
+        Logger::getInstance().log(msgStream.str());
+    }
+    
+    switch (uMsg) {
+        case WM_CREATE: {
+            Logger::getInstance().log(L"AuthorWindow::windowProc() - WM_CREATE 消息");
+            // 初始化链接信息
+            if (!m_linksInitialized) {
+                for (int i = 0; i < WINDOW_LINKS_COUNT; i++) {
+                    LinkInfo linkInfo;
+                    linkInfo.displayText = WINDOW_LINKS[i].displayText + WINDOW_LINKS[i].url;
+                    linkInfo.url = WINDOW_LINKS[i].url;
+                    linkInfo.rect = {};
+                    linkInfo.hovered = false;
+                    m_links.push_back(linkInfo);
+                }
+                m_linksInitialized = true;
+            }
+            
+            // 【关键改动】设置一个ID为1的定时器，每1000毫秒（1秒）触发一次
+            SetTimer(hwnd, 1, 1000, NULL);
+            m_countdown = 5; // 重置倒计时
+
+            Logger::getInstance().log(L"AuthorWindow::windowProc() - WM_CREATE 完成");
+            return 0;
+        }
+        
+        case WM_TIMER: {
+            if (wParam == 1) { // 检查是否是我们的定时器
+                m_countdown--;
+                if (m_countdown <= 0) {
+                    // 倒计时结束，关闭窗口
+                    Logger::getInstance().log(L"AuthorWindow::windowProc() - 倒计时结束，发送关闭消息");
+                    PostMessage(hwnd, WM_CLOSE, 0, 0);
+                } else {
+                    // 刷新窗口以更新倒计时显示
+                    InvalidateRect(hwnd, NULL, TRUE);
+                }
+            }
+            return 0;
+        }
+            
+        case WM_CLOSE:
+            Logger::getInstance().log(L"AuthorWindow::windowProc() - WM_CLOSE 消息");
+            // DestroyWindow 会触发 WM_DESTROY
+            DestroyWindow(hwnd);
+            return 0;
+            
+        case WM_DESTROY:
+            Logger::getInstance().log(L"AuthorWindow::windowProc() - WM_DESTROY 消息");
+            
+            // 清理资源
+            AuthorWindow::getInstance().m_hwnd = nullptr;
+            AuthorWindow::getInstance().m_visible = false;
+            KillTimer(hwnd, 1); // 确保定时器被销毁
+            
+            // 【关键改动】发送退出消息，以终止在 DllMain 中的消息循环
+            PostQuitMessage(0);
+            
+            return 0;
+            
+        case WM_LBUTTONDOWN: {
+            int xPos = LOWORD(lParam);
+            int yPos = HIWORD(lParam);
+            return handleLinkClick(hwnd, xPos, yPos);
+        }
+            
+        case WM_MOUSEMOVE: {
+            int xPos = LOWORD(lParam);
+            int yPos = HIWORD(lParam);
+            bool needRepaint = false;
+            
+            for (auto& link : m_links) {
+                bool wasHovered = link.hovered;
+                
+                if (yPos >= link.rect.top && yPos <= link.rect.bottom) {
+                    std::wstring displayText = link.displayText;
+                    size_t colonPos = displayText.find(L':');
+                    std::wstring description, urlPart;
+                    
+                    if (colonPos != std::wstring::npos) {
+                        description = displayText.substr(0, colonPos + 1);
+                        urlPart = displayText.substr(colonPos + 1);
+                    } else {
+                        description = displayText;
+                        urlPart = L"";
+                    }
+                    
+                    HDC hdc = GetDC(hwnd);
+                    HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"黑体");
+                    HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+                    
+                    SIZE descSize, urlSize;
+                    GetTextExtentPoint32W(hdc, description.c_str(), (int)description.length(), &descSize);
+                    GetTextExtentPoint32W(hdc, urlPart.c_str(), (int)urlPart.length(), &urlSize);
+                    
+                    int totalWidth = descSize.cx + urlSize.cx;
+                    int startX = (link.rect.right - totalWidth) / 2;
+                    int urlStartX = startX + descSize.cx;
+                    int urlEndX = urlStartX + urlSize.cx;
+                    
+                    link.hovered = (xPos >= urlStartX && xPos <= urlEndX && !urlPart.empty());
+                    
+                    SelectObject(hdc, hOldFont);
+                    DeleteObject(hFont);
+                    ReleaseDC(hwnd, hdc);
+                } else {
+                    link.hovered = false;
+                }
+                
+                if (wasHovered != link.hovered) {
+                    needRepaint = true;
+                }
+            }
+            
+            if (needRepaint) {
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+            return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+        }
+            
+        case WM_SETCURSOR: {
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(hwnd, &pt);
+            
+            for (const auto& link : m_links) {
+                if (pt.y >= link.rect.top && pt.y <= link.rect.bottom) {
+                    std::wstring displayText = link.displayText;
+                    size_t colonPos = displayText.find(L':');
+                    std::wstring description, urlPart;
+                    
+                    if (colonPos != std::wstring::npos) {
+                        description = displayText.substr(0, colonPos + 1);
+                        urlPart = displayText.substr(colonPos + 1);
+                    } else {
+                        description = displayText;
+                        urlPart = L"";
+                    }
+                    
+                    HDC hdc = GetDC(hwnd);
+                    HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"黑体");
+                    HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+                    
+                    SIZE descSize, urlSize;
+                    GetTextExtentPoint32W(hdc, description.c_str(), (int)description.length(), &descSize);
+                    GetTextExtentPoint32W(hdc, urlPart.c_str(), (int)urlPart.length(), &urlSize);
+                    
+                    int totalWidth = descSize.cx + urlSize.cx;
+                    int startX = (link.rect.right - totalWidth) / 2;
+                    int urlStartX = startX + descSize.cx;
+                    int urlEndX = urlStartX + urlSize.cx;
+                    
+                    if (pt.x >= urlStartX && pt.x <= urlEndX && !urlPart.empty()) {
+                        SetCursor(LoadCursor(NULL, IDC_HAND));
+                        SelectObject(hdc, hOldFont);
+                        DeleteObject(hFont);
+                        ReleaseDC(hwnd, hdc);
+                        return TRUE;
+                    }
+                    
+                    SelectObject(hdc, hOldFont);
+                    DeleteObject(hFont);
+                    ReleaseDC(hwnd, hdc);
+                }
+            }
+            return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+        }
+            
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            
+            HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"黑体");
+            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+            
+            SetTextColor(hdc, RGB(0, 0, 0));
+            SetBkMode(hdc, TRANSPARENT);
+            
+            RECT rect;
+            GetClientRect(hwnd, &rect);
+            
+            int yPos = 20;
+            int lineHeight = 20;
+            
+            RECT authorRect = {0, yPos, rect.right, yPos + lineHeight};
+            DrawTextW(hdc, WINDOW_AUTHOR, -1, &authorRect, DT_CENTER);
+            yPos += lineHeight * 2;
+            
+            RECT stmtRect = {0, yPos, rect.right, yPos + lineHeight * 2};
+            DrawTextW(hdc, WINDOW_STATEMENT, -1, &stmtRect, DT_CENTER | DT_WORDBREAK);
+            yPos += lineHeight * 3;
+            
+            for (auto& link : m_links) {
+                RECT linkRect = {0, yPos, rect.right, yPos + lineHeight};
+                link.rect = linkRect;
+                
+                std::wstring displayText = link.displayText;
+                size_t colonPos = displayText.find(L':');
+                std::wstring description, urlPart;
+                
+                if (colonPos != std::wstring::npos) {
+                    description = displayText.substr(0, colonPos + 1);
+                    urlPart = displayText.substr(colonPos + 1);
+                } else {
+                    description = displayText;
+                    urlPart = L"";
+                }
+                
+                SIZE descSize, urlSize;
+                GetTextExtentPoint32W(hdc, description.c_str(), (int)description.length(), &descSize);
+                GetTextExtentPoint32W(hdc, urlPart.c_str(), (int)urlPart.length(), &urlSize);
+                
+                int totalWidth = descSize.cx + urlSize.cx;
+                int startX = (rect.right - totalWidth) / 2;
+                
+                SetTextColor(hdc, RGB(0, 0, 0));
+                TextOutW(hdc, startX, yPos, description.c_str(), (int)description.length());
+                
+                SetTextColor(hdc, link.hovered ? RGB(0, 0, 255) : RGB(0, 0, 200));
+                TextOutW(hdc, startX + descSize.cx, yPos, urlPart.c_str(), (int)urlPart.length());
+                
+                if (link.hovered && !urlPart.empty()) {
+                    int underlineY = yPos + lineHeight - 2;
+                    int underlineX = startX + descSize.cx;
+                    
+                    HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 200));
+                    HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+                    MoveToEx(hdc, underlineX, underlineY, NULL);
+                    LineTo(hdc, underlineX + urlSize.cx, underlineY);
+                    SelectObject(hdc, hOldPen);
+                    DeleteObject(hPen);
+                }
+                
+                yPos += lineHeight;
+            }
+            
+            SetTextColor(hdc, RGB(0, 0, 0));
+            yPos += lineHeight * 2;
+            
+            // 绘制动态的倒计时信息
+            std::wstring countdownText = L"窗口将在 " + std::to_wstring(m_countdown) + L" 秒后自动关闭...";
+            RECT countdownRect = {0, yPos, rect.right, yPos + lineHeight};
+            DrawTextW(hdc, countdownText.c_str(), -1, &countdownRect, DT_CENTER);
+            
+            SelectObject(hdc, hOldFont);
+            DeleteObject(hFont);
+            
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        
+        default:
+            return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+    }
+}
+
+LRESULT AuthorWindow::handleLinkClick(HWND hwnd, int xPos, int yPos) {
+    for (const auto& link : m_links) {
+        if (yPos >= link.rect.top && yPos <= link.rect.bottom) {
+            std::wstring displayText = link.displayText;
+            size_t colonPos = displayText.find(L':');
+            std::wstring description, urlPart;
+            
+            if (colonPos != std::wstring::npos) {
+                description = displayText.substr(0, colonPos + 1);
+                urlPart = displayText.substr(colonPos + 1);
+            } else {
+                description = displayText;
+                urlPart = L"";
+            }
+            
+            HDC hdc = GetDC(hwnd);
+            HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"黑体");
+            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+            
+            SIZE descSize, urlSize;
+            GetTextExtentPoint32W(hdc, description.c_str(), (int)description.length(), &descSize);
+            GetTextExtentPoint32W(hdc, urlPart.c_str(), (int)urlPart.length(), &urlSize);
+            
+            int totalWidth = descSize.cx + urlSize.cx;
+            int startX = (link.rect.right - totalWidth) / 2;
+            int urlStartX = startX + descSize.cx;
+            int urlEndX = urlStartX + urlSize.cx;
+            
+            if (xPos >= urlStartX && xPos <= urlEndX && !urlPart.empty()) {
+                SelectObject(hdc, hOldFont);
+                DeleteObject(hFont);
+                ReleaseDC(hwnd, hdc);
+                
+                // 在新线程中打开链接，以避免阻塞UI
+                std::thread(openLink, link.url).detach();
+                
+                return 0;
+            }
+            
+            SelectObject(hdc, hOldFont);
+            DeleteObject(hFont);
+            ReleaseDC(hwnd, hdc);
+        }
+    }
+    return DefWindowProcW(hwnd, WM_LBUTTONDOWN, 0, 0);
+}
+
+void AuthorWindow::openLink(const std::wstring& url) {
+    ShellExecuteW(NULL, L"open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
+}
+
+int AuthorWindow::calculateDisplayWidth(const std::wstring& str) {
+    int width = 0;
+    for (wchar_t c : str) {
+        if (c >= 0x1100 && (c <= 0x115f || (c >= 0x2e80 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xfe30 && c <= 0xfe6f) || (c >= 0xff00 && c <= 0xffef))) {
+            width += 2;
+        } else {
+            width += 1;
+        }
+    }
+    return width;
+}

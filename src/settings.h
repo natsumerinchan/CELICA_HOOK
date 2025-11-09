@@ -6,6 +6,27 @@
 #include <unordered_map>
 #include <windows.h>
 
+
+// 链接信息结构
+struct LinkInfo {
+    std::wstring displayText;
+    std::wstring url;
+};
+
+// 弹窗显示内容
+#define WINDOW_AUTHOR L"作者: " L"natsumerin@ai2.moe==雨宮ゆうこ@moyu.moe"
+#define WINDOW_STATEMENT L"声明: " L"本补丁免费发布于御爱和鲲补丁站，允许转载但禁止倒卖或冒充人工汉化发布"
+
+// 链接定义
+static const LinkInfo WINDOW_LINKS[] = {
+    {L"补丁仓库: ", L"https://github.com/natsumerinchan/MyGalTranslationPatches.git"},
+    {L"御爱同萌: ", L"https://www.ai2.moe/profile/13275-natsumerin"},
+    {L"鲲Galgame补丁站: ", L"https://www.moyu.moe/user/47/resource"},
+    {L"HOOK项目仓库: ", L"https://github.com/natsumerinchan/CELICA_HOOK.git"}
+};
+
+static const int WINDOW_LINKS_COUNT = sizeof(WINDOW_LINKS) / sizeof(WINDOW_LINKS[0]);
+
 // 配置结构体
 struct HookConfig {
     bool enableFileRedirect = false;

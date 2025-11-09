@@ -8,6 +8,7 @@
 - **文件欺骗**: 隐藏特定文件或目录，假装文件不存在
 - **字体修改**: 修改游戏字体和字符集，支持中文显示，支持字体免安装加载
 - **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本
+- **启动弹窗**: 游戏启动时显示作者信息弹窗，用户确认后才能继续运行
 - **自动转区**: 在[xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git)的作用下自动转区
 - **日志系统**: UTF-8-BOM编码的详细日志输出
 - **配置驱动**: 通过配置文件灵活控制各项功能
@@ -26,6 +27,8 @@ CELICA_HOOK/
     ├── main.cpp           # 主程序入口
     ├── settings.h         # 配置管理头文件
     ├── config_manager.cpp # 配置管理器实现
+    ├── author_window.h         # 弹窗头文件
+    ├── author_window.cpp # 弹窗实现
     ├── logger.h           # 日志系统头文件
     ├── logger.cpp         # 日志系统实现
     ├── hook_manager.h     # Hook管理器头文件
@@ -215,7 +218,27 @@ LogFile=celica_hook.log
 2. 如果希望修改所有窗口标题，可以将 `OriginalWindowTitle` 留空
 3. 如果希望禁用标题检查直接修改所有标题，可以设置 `EnableTitleCheck=0`
 
-### 6. Locale Emulator转区功能配置
+### 6. 启动弹窗功能
+
+**功能说明：**
+
+- 游戏启动时会显示作者信息弹窗
+- 倒计时5秒后弹窗会自动关闭并继续游戏
+- 弹窗标题使用配置中的`NewWindowTitle`，如果未定义则使用默认标题
+- 显示多个作者ID和主页链接（或作者在不同论坛使用不同的ID）
+- 弹窗内的链接可点击并跳转
+
+**弹窗内容：**
+
+- 作者ID列表（支持多个论坛ID）
+- 主页链接列表（支持多个主页）
+- 附加说明和使用提示
+
+**注意事项：**
+
+- 弹窗信息在`settings.h`中定义，用户无法修改
+
+### 7. Locale Emulator转区功能配置
 
 **功能说明：**
 
