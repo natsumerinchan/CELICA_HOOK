@@ -23,8 +23,14 @@ private:
     static LRESULT handleLinkClick(HWND hwnd, int xPos, int yPos);
     static void openLink(const std::wstring& url);
     
+    // 图标相关函数
+    static HICON getTargetProcessIcon();
+    static HICON extractIconFromExecutable(const std::wstring& exePath);
+    static std::wstring getTargetProcessPath();
+    
     HWND m_hwnd = nullptr;
     bool m_visible = false;
+    HICON m_hIcon = nullptr; // 存储目标程序图标
     
     // 链接信息结构
     struct LinkInfo {

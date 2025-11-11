@@ -1,10 +1,12 @@
 #include "author_window.h"
 #include "settings.h"
 #include "logger.h"
+#include "utils.h"
 #include <shellapi.h>
 #include <algorithm>
 #include <thread>
 #include <sstream>
+#include <psapi.h>
 
 // 静态成员初始化
 std::vector<AuthorWindow::LinkInfo> AuthorWindow::m_links;
@@ -24,6 +26,9 @@ void AuthorWindow::show() {
     
     Logger::getInstance().log(L"AuthorWindow::show() - 开始显示窗口");
     
+    // 获取目标程序图标
+    m_hIcon = getTargetProcessIcon();
+    
     // 注册窗口类
     WNDCLASSW wc = {};
     wc.lpfnWndProc = windowProc;
@@ -31,6 +36,15 @@ void AuthorWindow::show() {
     wc.lpszClassName = L"AuthorInfoWindow";
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    
+    // 设置图标
+    if (m_hIcon) {
+        wc.hIcon = m_hIcon;
+        Logger::getInstance().log(L"AuthorWindow::show() - 已设置目标程序图标");
+    } else {
+        wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+        Logger::getInstance().log(L"AuthorWindow::show() - 使用默认应用程序图标");
+    }
     
     ATOM classAtom = RegisterClassW(&wc);
     if (classAtom == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
@@ -94,6 +108,13 @@ void AuthorWindow::close() {
     if (m_hwnd) {
         Logger::getInstance().log(L"AuthorWindow::close() - 开始关闭窗口");
         DestroyWindow(m_hwnd);
+        
+        // 清理图标资源
+        if (m_hIcon) {
+            DestroyIcon(m_hIcon);
+            m_hIcon = nullptr;
+            Logger::getInstance().log(L"AuthorWindow::close() - 已清理图标资源");
+        }
     } else {
         Logger::getInstance().log(L"AuthorWindow::close() - 窗口句柄为空，无需关闭");
     }
@@ -426,4 +447,67 @@ int AuthorWindow::calculateDisplayWidth(const std::wstring& str) {
         }
     }
     return width;
+}
+
+// 获取目标程序路径
+std::wstring AuthorWindow::getTargetProcessPath() {
+    wchar_t buffer[MAX_PATH];
+    DWORD result = GetModuleFileNameW(NULL, buffer, MAX_PATH);
+    
+    if (result == 0) {
+        DWORD error = GetLastError();
+        Logger::getInstance().log(L"AuthorWindow::getTargetProcessPath() - 获取进程路径失败，错误代码: " + std::to_wstring(error));
+        return L"";
+    }
+    
+    std::wstring processPath = buffer;
+    Logger::getInstance().log(L"AuthorWindow::getTargetProcessPath() - 进程路径: " + processPath);
+    return processPath;
+}
+
+// 从可执行文件提取图标
+HICON AuthorWindow::extractIconFromExecutable(const std::wstring& exePath) {
+    if (exePath.empty()) {
+        Logger::getInstance().log(L"AuthorWindow::extractIconFromExecutable() - 可执行文件路径为空");
+        return nullptr;
+    }
+    
+    // 尝试提取大图标
+    HICON hIcon = nullptr;
+    UINT result = ExtractIconExW(exePath.c_str(), 0, &hIcon, nullptr, 1);
+    
+    if (result == 0 || hIcon == nullptr) {
+        Logger::getInstance().log(L"AuthorWindow::extractIconFromExecutable() - 提取图标失败，尝试其他方法");
+        
+        // 如果ExtractIconEx失败，尝试使用ExtractIcon
+        hIcon = ExtractIconW(GetModuleHandle(NULL), exePath.c_str(), 0);
+        
+        if (hIcon == nullptr) {
+            Logger::getInstance().log(L"AuthorWindow::extractIconFromExecutable() - 所有图标提取方法都失败");
+            return nullptr;
+        }
+    }
+    
+    Logger::getInstance().log(L"AuthorWindow::extractIconFromExecutable() - 成功提取图标");
+    return hIcon;
+}
+
+// 获取目标程序图标
+HICON AuthorWindow::getTargetProcessIcon() {
+    std::wstring processPath = getTargetProcessPath();
+    
+    if (processPath.empty()) {
+        Logger::getInstance().log(L"AuthorWindow::getTargetProcessIcon() - 无法获取进程路径");
+        return nullptr;
+    }
+    
+    HICON hIcon = extractIconFromExecutable(processPath);
+    
+    if (hIcon == nullptr) {
+        Logger::getInstance().log(L"AuthorWindow::getTargetProcessIcon() - 无法提取目标程序图标");
+        return nullptr;
+    }
+    
+    Logger::getInstance().log(L"AuthorWindow::getTargetProcessIcon() - 成功获取目标程序图标");
+    return hIcon;
 }
