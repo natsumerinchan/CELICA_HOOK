@@ -7,7 +7,7 @@
 - **文件重定向**: 将游戏目录下的`CHSFiles`文件夹内容递归映射到游戏根目录
 - **文件欺骗**: 隐藏特定文件或目录，假装文件不存在
 - **字体修改**: 修改游戏字体和字符集，支持中文显示，支持字体免安装加载
-- **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本
+- **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本(仅注入器模式有效)
 - **启动弹窗**: 游戏启动时显示作者信息弹窗，用户确认后才能继续运行
 - **自动转区**: 在[xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git)的作用下自动转区
 - **日志系统**: UTF-8-BOM编码的详细日志输出
@@ -29,6 +29,7 @@ CELICA_HOOK/
     ├── config_manager.cpp # 配置管理器实现
     ├── author_window.h         # 弹窗头文件
     ├── author_window.cpp # 弹窗实现
+    ├── launcher.cpp # 注入器实现
     ├── logger.h           # 日志系统头文件
     ├── logger.cpp         # 日志系统实现
     ├── hook_manager.h     # Hook管理器头文件
@@ -66,7 +67,10 @@ git clone https://github.com/natsumerinchan/CELICA_HOOK.git
 使用Visual Studio 2026打开本项目文件夹，待`CMake 生成完毕`后  
 在菜单栏的`生成`中执行`全部生成`即可。
 
-使用DLL导入表修改工具如Detours项目的setdll.exe(已放在仓库的tools文件夹)将编译生成的`CELICA_HOOK.dll`导入到目标游戏exe中。
+#### 注入方法
+
+- 方法一： 使用DLL导入表修改工具如Detours项目的setdll.exe(已放在仓库的tools文件夹)将编译生成的`CELICA_HOOK.dll`导入到目标游戏exe中。
+- 方法二： 在`CELICA_HOOK.ini中`配置目标程序，使用`CELICA_HOOK_LAUNCHER.exe`(可自行重命名)启动游戏
 
 ## 使用方法
 
@@ -86,6 +90,9 @@ EnableFontHook=1
 EnableWindowTitleHook=0
 EnableLocaleEmulation=0
 EnableLogging=0
+
+; 目标进程名称，用于DLL注入器（例如：game.exe）
+TargetProcess=
 
 [File]
 ; 文件重定向文件夹
@@ -183,7 +190,8 @@ LogFile=celica_hook.log
 
 **使用场景：**
 
-- 目标游戏引擎支持免封包读取但需要重命名或删除原封包
+- 1、目标游戏引擎支持免封包读取但需要重命名或删除原封包
+- 2、隐藏翻译文件启动日文原版
 
 ### 4. 字体配置
 
@@ -218,7 +226,7 @@ LogFile=celica_hook.log
 2. 如果希望修改所有窗口标题，可以将 `OriginalWindowTitle` 留空
 3. 如果希望禁用标题检查直接修改所有标题，可以设置 `EnableTitleCheck=0`
 
-### 6. 启动弹窗功能
+### 6. 启动弹窗功能(仅注入器模式有效)
 
 **功能说明：**
 

@@ -266,3 +266,110 @@ bool LocaleEmulator::setupTimezone() {
     // 时区设置已经在relaunchProcess中处理
     return true;
 }
+
+bool LocaleEmulator::createProcessWithLocale(const std::wstring& applicationPath) {
+    // 确保转区功能已初始化
+    if (!initialize()) {
+        return false;
+    }
+    
+    if (!m_enabled) {
+        // 如果转区功能未启用，使用普通方式启动进程
+        STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+        PROCESS_INFORMATION pi = { 0 };
+        si.cb = sizeof(si);
+        
+        return CreateProcessW(
+            applicationPath.c_str(),
+            NULL,
+            NULL,
+            NULL,
+            FALSE,
+            0,
+            NULL,
+            NULL,
+            &si,
+            &pi
+        );
+    }
+    
+    // 基于LELOADER的实现
+    LEB leb{};
+    leb.AnsiCodePage = m_codepage;
+    leb.OemCodePage = m_codepage;
+    leb.LocaleID = m_localeId;
+    leb.DefaultCharset = m_charset;
+
+    // 设置时区信息
+    HKEY hTimeZone;
+    std::wstring key = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Time Zones\\" + m_timezone;
+    
+    if (RegOpenKeyW(HKEY_LOCAL_MACHINE, key.c_str(), &hTimeZone) == ERROR_SUCCESS) {
+        DWORD bufferSize = sizeof leb.Timezone.StandardName;
+        RegGetValueW(hTimeZone, nullptr, L"Std", RRF_RT_REG_SZ, nullptr, leb.Timezone.StandardName, &bufferSize);
+
+        bufferSize = sizeof leb.Timezone.DaylightName;
+        RegGetValueW(hTimeZone, nullptr, L"Dlt", RRF_RT_REG_SZ, nullptr, leb.Timezone.DaylightName, &bufferSize);
+
+        REG_TZI_FORMAT timeZoneInfo;
+        bufferSize = sizeof timeZoneInfo;
+        RegGetValueW(hTimeZone, nullptr, L"TZI", RRF_RT_REG_BINARY, nullptr, &timeZoneInfo, &bufferSize);
+        leb.Timezone.Bias = timeZoneInfo.Bias;
+        leb.Timezone.StandardBias = timeZoneInfo.StandardBias;
+        leb.Timezone.DaylightBias = 0;
+
+        RegCloseKey(hTimeZone);
+    }
+
+    wchar_t currentDirectory[MAX_PATH];
+    GetCurrentDirectoryW(std::size(currentDirectory), currentDirectory);
+
+    STARTUPINFOW startInfo{};
+    startInfo.cb = sizeof(startInfo);
+    ML_PROCESS_INFORMATION processInfo{};
+
+    // 尝试加载LoaderDll.dll
+    const HMODULE hLoader = LoadLibraryA("LoaderDll.dll");
+    if (hLoader == nullptr) {
+        Logger::getInstance().log(L"无法加载LoaderDll.dll，转区功能需要此文件");
+        return false;
+    }
+
+    const auto LeCreateProcess = reinterpret_cast<LeCreateProcess_t>(GetProcAddress(hLoader, "LeCreateProcess"));
+    if (LeCreateProcess == nullptr) {
+        Logger::getInstance().log(L"无法找到LeCreateProcess函数");
+        FreeLibrary(hLoader);
+        return false;
+    }
+
+    // 使用转区设置启动目标程序
+    const auto result = LeCreateProcess(
+        &leb,
+        applicationPath.c_str(),  // 目标程序路径
+        NULL,                     // 命令行参数
+        currentDirectory,         // 工作目录
+        0,                        // 创建标志
+        &startInfo,
+        &processInfo,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
+    );
+
+    FreeLibrary(hLoader);
+
+    if (result == ERROR_SUCCESS) {
+        // 成功创建新进程，但不退出当前进程
+        Logger::getInstance().log(L"转区启动目标程序成功");
+        
+        // 关闭进程和线程句柄
+        CloseHandle(processInfo.hProcess);
+        CloseHandle(processInfo.hThread);
+        
+        return true;
+    } else {
+        Logger::getInstance().log(L"转区启动目标程序失败，错误代码: " + std::to_wstring(result));
+        return false;
+    }
+}

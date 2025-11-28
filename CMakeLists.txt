@@ -34,7 +34,6 @@ add_library(CELICA_HOOK SHARED
     src/config_manager.cpp
     src/utils.cpp
     src/locale_emulator.cpp
-    src/author_window.cpp
 )
 
 # 链接detours库
@@ -46,25 +45,21 @@ target_link_libraries(CELICA_HOOK kernel32 user32 gdi32)
 # 设置预处理器定义
 target_compile_definitions(CELICA_HOOK PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _X86_)
 
-# 添加控制台测试程序
-add_executable(CELICA_HOOK_TEST
-    src/main.cpp
-    src/hook_manager.cpp
-    src/file_hook.cpp
-    src/font_hook.cpp
-    src/window_title_hook.cpp
-    src/logger.cpp
+# 添加DLL启动器（使用DetourCreateProcessWithDllW）- Windows子系统
+add_executable(CELICA_HOOK_LAUNCHER WIN32
+    src/launcher.cpp
     src/config_manager.cpp
+    src/logger.cpp
     src/utils.cpp
-    src/locale_emulator.cpp
     src/author_window.cpp
+    src/locale_emulator.cpp
 )
 
 # 链接detours库
-target_link_libraries(CELICA_HOOK_TEST ${CMAKE_SOURCE_DIR}/src/detours/detours.lib)
+target_link_libraries(CELICA_HOOK_LAUNCHER ${CMAKE_SOURCE_DIR}/src/detours/detours.lib)
 
 # Windows API链接
-target_link_libraries(CELICA_HOOK_TEST kernel32 user32 gdi32)
+target_link_libraries(CELICA_HOOK_LAUNCHER kernel32 user32 gdi32)
 
 # 设置预处理器定义
-target_compile_definitions(CELICA_HOOK_TEST PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _X86_ _CONSOLE)
+target_compile_definitions(CELICA_HOOK_LAUNCHER PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _X86_)

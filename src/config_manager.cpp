@@ -149,6 +149,8 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
         m_config.timezone = value;
     } else if (key == L"Logging.LogFile") {
         m_config.logFile = value;
+    } else if (key == L"General.TargetProcess") {
+        m_config.targetProcess = value;
     }
 }
 

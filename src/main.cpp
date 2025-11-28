@@ -7,7 +7,6 @@
 #include "hook_manager.h"
 #include "utils.h" 
 #include "locale_emulator.h"
-#include "author_window.h"
 
 // DLL导出函数声明
 extern "C" __declspec(dllexport) BOOL WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved);
@@ -52,17 +51,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
                 return TRUE;
             }
             
-            // 显示作者署名弹窗
-            AuthorWindow::getInstance().show();
-            
-            // 运行标准消息循环，它会阻塞直到弹窗关闭
-            MSG msg;
-            while (GetMessage(&msg, NULL, 0, 0) > 0) {
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-            }
-            
-            Logger::getInstance().log(L"作者窗口已关闭，继续执行初始化...");
+            Logger::getInstance().log(L"开始执行初始化...");
 
             // 初始化hook管理器
             if (!HookManager::getInstance().initialize()) {

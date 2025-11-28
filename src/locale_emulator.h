@@ -19,6 +19,9 @@ public:
     // 执行转区操作
     bool performLocaleEmulation();
     
+    // 使用转区设置创建进程
+    bool createProcessWithLocale(const std::wstring& applicationPath);
+    
     // 获取转区状态
     bool isLocaleEmulationEnabled() const { return m_enabled; }
     

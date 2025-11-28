@@ -71,6 +71,9 @@ struct HookConfig {
     // 日志配置
     bool enableLogging = true;
     std::wstring logFile = L"celica_hook.log";
+    
+    // 注入器配置
+    std::wstring targetProcess = L"";  // 目标进程名称
 };
 
 class ConfigManager {
