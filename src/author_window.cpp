@@ -3,10 +3,13 @@
 #include "logger.h"
 #include "utils.h"
 #include <shellapi.h>
+#include <shlwapi.h>
 #include <algorithm>
 #include <thread>
 #include <sstream>
 #include <psapi.h>
+
+#pragma comment(lib, "shlwapi.lib")
 
 // 静态成员初始化
 std::vector<AuthorWindow::LinkInfo> AuthorWindow::m_links;
@@ -451,18 +454,141 @@ int AuthorWindow::calculateDisplayWidth(const std::wstring& str) {
 
 // 获取目标程序路径
 std::wstring AuthorWindow::getTargetProcessPath() {
-    wchar_t buffer[MAX_PATH];
-    DWORD result = GetModuleFileNameW(NULL, buffer, MAX_PATH);
+    // 从配置文件中获取目标程序路径
+    ConfigManager& configManager = ConfigManager::getInstance();
+    const HookConfig& config = configManager.getConfig();
+    std::wstring targetPath = config.targetProcess;
     
-    if (result == 0) {
-        DWORD error = GetLastError();
-        Logger::getInstance().log(L"AuthorWindow::getTargetProcessPath() - 获取进程路径失败，错误代码: " + std::to_wstring(error));
+    if (targetPath.empty()) {
+        Logger::getInstance().log(L"AuthorWindow::getTargetProcessPath() - 配置文件中未设置目标程序路径");
         return L"";
     }
     
-    std::wstring processPath = buffer;
-    Logger::getInstance().log(L"AuthorWindow::getTargetProcessPath() - 进程路径: " + processPath);
-    return processPath;
+    // 处理相对路径
+    if (PathIsRelativeW(targetPath.c_str())) {
+        wchar_t currentDir[MAX_PATH];
+        GetCurrentDirectoryW(MAX_PATH, currentDir);
+        wchar_t fullPath[MAX_PATH];
+        PathCombineW(fullPath, currentDir, targetPath.c_str());
+        targetPath = fullPath;
+    }
+    
+    // 检查目标程序是否存在
+    if (GetFileAttributesW(targetPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        Logger::getInstance().log(L"AuthorWindow::getTargetProcessPath() - 目标程序不存在: " + targetPath);
+        return L"";
+    }
+    
+    Logger::getInstance().log(L"AuthorWindow::getTargetProcessPath() - 目标程序路径: " + targetPath);
+    return targetPath;
+}
+
+// 从ICO文件加载图标
+HICON AuthorWindow::loadIconFromFile(const std::wstring& icoPath) {
+    if (icoPath.empty()) {
+        Logger::getInstance().log(L"AuthorWindow::loadIconFromFile() - ICO文件路径为空");
+        return nullptr;
+    }
+    
+    // 检查ICO文件是否存在
+    if (GetFileAttributesW(icoPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        Logger::getInstance().log(L"AuthorWindow::loadIconFromFile() - ICO文件不存在: " + icoPath);
+        return nullptr;
+    }
+    
+    // 从ICO文件加载图标
+    HICON hIcon = (HICON)LoadImageW(
+        NULL, 
+        icoPath.c_str(), 
+        IMAGE_ICON, 
+        0, 0, 
+        LR_LOADFROMFILE | LR_DEFAULTSIZE
+    );
+    
+    if (hIcon == nullptr) {
+        DWORD error = GetLastError();
+        Logger::getInstance().log(L"AuthorWindow::loadIconFromFile() - 加载ICO文件失败，错误代码: " + std::to_wstring(error));
+        return nullptr;
+    }
+    
+    Logger::getInstance().log(L"AuthorWindow::loadIconFromFile() - 成功从ICO文件加载图标: " + icoPath);
+    return hIcon;
+}
+
+// 扫描游戏目录中的所有ICO文件并选择最大的
+HICON AuthorWindow::findAndLoadGameIcon(const std::wstring& exePath) {
+    if (exePath.empty()) {
+        return nullptr;
+    }
+    
+    // 获取游戏目录
+    std::wstring gameDir = exePath;
+    size_t lastSlash = gameDir.find_last_of(L"\\/");
+    if (lastSlash != std::wstring::npos) {
+        gameDir = gameDir.substr(0, lastSlash + 1);
+    } else {
+        gameDir = L"";
+    }
+    
+    Logger::getInstance().log(L"AuthorWindow::findAndLoadGameIcon() - 开始扫描游戏目录: " + gameDir);
+    
+    // 查找所有ICO文件
+    WIN32_FIND_DATAW findData;
+    HANDLE hFind = FindFirstFileW((gameDir + L"*.ico").c_str(), &findData);
+    
+    if (hFind == INVALID_HANDLE_VALUE) {
+        Logger::getInstance().log(L"AuthorWindow::findAndLoadGameIcon() - 未找到任何ICO文件");
+        return nullptr;
+    }
+    
+    std::vector<std::pair<std::wstring, ULONGLONG>> icoFiles;
+    
+    do {
+        // 跳过目录
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        
+        std::wstring fileName = findData.cFileName;
+        std::wstring fullPath = gameDir + fileName;
+        
+        // 计算文件大小
+        ULONGLONG fileSize = (static_cast<ULONGLONG>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow;
+        
+        icoFiles.push_back(std::make_pair(fullPath, fileSize));
+        
+        Logger::getInstance().log(L"AuthorWindow::findAndLoadGameIcon() - 找到ICO文件: " + fileName + L", 大小: " + std::to_wstring(fileSize));
+        
+    } while (FindNextFileW(hFind, &findData));
+    
+    FindClose(hFind);
+    
+    if (icoFiles.empty()) {
+        Logger::getInstance().log(L"AuthorWindow::findAndLoadGameIcon() - 未找到有效的ICO文件");
+        return nullptr;
+    }
+    
+    // 按文件大小排序（从大到小）
+    std::sort(icoFiles.begin(), icoFiles.end(), 
+        [](const std::pair<std::wstring, ULONGLONG>& a, const std::pair<std::wstring, ULONGLONG>& b) {
+            return a.second > b.second;
+        });
+    
+    // 尝试加载最大的ICO文件
+    for (const auto& icoFile : icoFiles) {
+        Logger::getInstance().log(L"AuthorWindow::findAndLoadGameIcon() - 尝试加载ICO文件: " + icoFile.first + L", 大小: " + std::to_wstring(icoFile.second));
+        
+        HICON hIcon = loadIconFromFile(icoFile.first);
+        if (hIcon != nullptr) {
+            Logger::getInstance().log(L"AuthorWindow::findAndLoadGameIcon() - 成功加载最大的ICO文件: " + icoFile.first);
+            return hIcon;
+        } else {
+            Logger::getInstance().log(L"AuthorWindow::findAndLoadGameIcon() - 无法加载ICO文件: " + icoFile.first);
+        }
+    }
+    
+    Logger::getInstance().log(L"AuthorWindow::findAndLoadGameIcon() - 所有ICO文件都无法加载");
+    return nullptr;
 }
 
 // 从可执行文件提取图标
@@ -501,13 +627,25 @@ HICON AuthorWindow::getTargetProcessIcon() {
         return nullptr;
     }
     
-    HICON hIcon = extractIconFromExecutable(processPath);
+    Logger::getInstance().log(L"AuthorWindow::getTargetProcessIcon() - 开始获取图标，目标程序路径: " + processPath);
+    
+    // 优先从游戏目录查找ICO文件
+    HICON hIcon = findAndLoadGameIcon(processPath);
+    if (hIcon != nullptr) {
+        Logger::getInstance().log(L"AuthorWindow::getTargetProcessIcon() - 已使用游戏目录中的ICO文件");
+        return hIcon;
+    }
+    
+    Logger::getInstance().log(L"AuthorWindow::getTargetProcessIcon() - 未找到ICO文件，尝试从可执行文件提取图标");
+    
+    // 如果找不到ICO文件，则从目标程序提取图标
+    hIcon = extractIconFromExecutable(processPath);
     
     if (hIcon == nullptr) {
         Logger::getInstance().log(L"AuthorWindow::getTargetProcessIcon() - 无法提取目标程序图标");
         return nullptr;
     }
     
-    Logger::getInstance().log(L"AuthorWindow::getTargetProcessIcon() - 成功获取目标程序图标");
+    Logger::getInstance().log(L"AuthorWindow::getTargetProcessIcon() - 成功从可执行文件提取图标");
     return hIcon;
 }

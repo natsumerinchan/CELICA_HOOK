@@ -7,8 +7,8 @@
 - **文件重定向**: 将游戏目录下的`CHSFiles`文件夹内容递归映射到游戏根目录
 - **文件欺骗**: 隐藏特定文件或目录，假装文件不存在
 - **字体修改**: 修改游戏字体和字符集，支持中文显示，支持字体免安装加载
-- **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本(仅注入器模式有效)
-- **启动弹窗**: 游戏启动时显示作者信息弹窗，用户确认后才能继续运行
+- **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本
+- **启动弹窗**: 游戏启动时显示作者信息弹窗，倒计时5秒后继续运行游戏(仅注入器模式有效)
 - **自动转区**: 在[xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git)的作用下自动转区
 - **日志系统**: UTF-8-BOM编码的详细日志输出
 - **配置驱动**: 通过配置文件灵活控制各项功能
@@ -70,7 +70,7 @@ git clone https://github.com/natsumerinchan/CELICA_HOOK.git
 #### 注入方法
 
 - 方法一： 使用DLL导入表修改工具如Detours项目的setdll.exe(已放在仓库的tools文件夹)将编译生成的`CELICA_HOOK.dll`导入到目标游戏exe中。
-- 方法二： 在`CELICA_HOOK.ini中`配置目标程序，使用`CELICA_HOOK_LAUNCHER.exe`(可自行重命名)启动游戏
+- 方法二： 在`CELICA_HOOK.ini`中配置目标程序，使用`CELICA_HOOK_LAUNCHER.exe`(可自行重命名)启动游戏
 
 ## 使用方法
 

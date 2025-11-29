@@ -59,7 +59,7 @@ add_executable(CELICA_HOOK_LAUNCHER WIN32
 target_link_libraries(CELICA_HOOK_LAUNCHER ${CMAKE_SOURCE_DIR}/src/detours/detours.lib)
 
 # Windows API链接
-target_link_libraries(CELICA_HOOK_LAUNCHER kernel32 user32 gdi32)
+target_link_libraries(CELICA_HOOK_LAUNCHER kernel32 user32 gdi32 shlwapi)
 
 # 设置预处理器定义
 target_compile_definitions(CELICA_HOOK_LAUNCHER PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _X86_)

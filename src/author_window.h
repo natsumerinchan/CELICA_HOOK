@@ -26,6 +26,8 @@ private:
     // 图标相关函数
     static HICON getTargetProcessIcon();
     static HICON extractIconFromExecutable(const std::wstring& exePath);
+    static HICON loadIconFromFile(const std::wstring& icoPath);
+    static HICON findAndLoadGameIcon(const std::wstring& exePath);
     static std::wstring getTargetProcessPath();
     
     HWND m_hwnd = nullptr;
