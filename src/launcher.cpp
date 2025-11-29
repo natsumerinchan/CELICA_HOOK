@@ -1,14 +1,16 @@
 #include <windows.h>
-#include <filesystem>
 #include <string>
 #include <iostream>
 #include <tlhelp32.h>
+#include <shlwapi.h>
 #include "detours.h"
 #include "settings.h"
 #include "logger.h"
 #include "author_window.h"
 #include "utils.h"
 #include "locale_emulator.h"
+
+#pragma comment(lib, "shlwapi.lib")
 
 // 函数声明
 DWORD findProcessByPath(const std::wstring& processPath);
@@ -51,13 +53,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
 
     // 获取当前目录
-    std::wstring currentPath = std::filesystem::current_path().wstring();
+    wchar_t currentDir[MAX_PATH];
+    GetCurrentDirectoryW(MAX_PATH, currentDir);
+    std::wstring currentPath = currentDir;
     
     // 构建DLL完整路径
     std::wstring dllPath = currentPath + L"\\CELICA_HOOK.dll";
     
     // 检查DLL是否存在
-    if (!std::filesystem::exists(dllPath)) {
+    if (GetFileAttributesW(dllPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
         MessageBoxW(NULL, L"找不到CELICA_HOOK.dll，请确保它与启动器在同一目录", L"错误", MB_ICONERROR);
         return 1;
     }
@@ -73,13 +77,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     
     // 处理相对路径：如果路径不是绝对路径，则转换为相对于当前目录的绝对路径
-    if (!std::filesystem::path(targetPath).is_absolute()) {
-        targetPath = currentPath + L"\\" + targetPath;
+    if (PathIsRelativeW(targetPath.c_str())) {
+        wchar_t fullPath[MAX_PATH];
+        PathCombineW(fullPath, currentDir, targetPath.c_str());
+        targetPath = fullPath;
         std::wcout << L"相对路径已转换为绝对路径: " << targetPath << std::endl;
     }
     
     // 检查目标程序是否存在
-    if (!std::filesystem::exists(targetPath)) {
+    if (GetFileAttributesW(targetPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
         MessageBoxW(NULL, (L"找不到目标程序: " + targetPath).c_str(), L"错误", MB_ICONERROR);
         return 1;
     }
