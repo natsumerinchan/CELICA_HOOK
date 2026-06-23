@@ -45,7 +45,7 @@ target_link_libraries(CELICA_HOOK kernel32 user32 gdi32)
 # 设置预处理器定义
 target_compile_definitions(CELICA_HOOK PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _X86_)
 
-# 添加DLL启动器（使用DetourCreateProcessWithDllW）- Windows子系统
+# 添加DLL注入器（使用DetourCreateProcessWithDllW）- Windows子系统
 add_executable(CELICA_HOOK_LAUNCHER WIN32
     src/launcher.cpp
     src/config_manager.cpp

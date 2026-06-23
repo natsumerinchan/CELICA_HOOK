@@ -62,7 +62,7 @@ void AuthorWindow::show() {
     const HookConfig& config = configManager.getConfig();
     
     // 确定窗口标题
-    std::wstring windowTitle = L"CELICA_HOOK";
+    std::wstring windowTitle = L"CELICA HOOK LAUNCHER";
     if (!config.newWindowTitle.empty()) {
         windowTitle = config.newWindowTitle;
     } else if (!config.originalWindowTitle.empty()) {

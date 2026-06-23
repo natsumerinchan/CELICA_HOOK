@@ -8,7 +8,7 @@
 - **文件欺骗**: 隐藏特定文件或目录，假装文件不存在
 - **字体修改**: 修改游戏字体和字符集，支持中文显示，支持字体免安装加载
 - **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本
-- **启动弹窗**: 游戏启动时显示作者信息弹窗，倒计时5秒后继续运行游戏(仅注入器模式有效)
+- **启动弹窗**: 游戏启动时显示作者信息弹窗，倒计时5秒后继续运行游戏
 - **自动转区**: 在[xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git)的作用下自动转区
 - **日志系统**: UTF-8-BOM编码的详细日志输出
 - **配置驱动**: 通过配置文件灵活控制各项功能
@@ -69,8 +69,7 @@ git clone https://github.com/natsumerinchan/CELICA_HOOK.git
 
 #### 注入方法
 
-- 方法一： 使用DLL导入表修改工具如Detours项目的setdll.exe(已放在仓库的tools文件夹)将编译生成的`CELICA_HOOK.dll`导入到目标游戏exe中。
-- 方法二： 在`CELICA_HOOK.ini`中配置目标程序，使用`CELICA_HOOK_LAUNCHER.exe`(可自行重命名)启动游戏
+- 在`CELICA_HOOK.ini`中的`TargetProcess=`配置目标程序，使用`CELICA_HOOK_LAUNCHER.exe`(可自行重命名)启动游戏
 
 ## 使用方法
 
@@ -141,7 +140,7 @@ EnableCreateFontIndirectW=0
 ; 窗口标题配置
 ; 是否启用标题检查 (1=启用, 0=禁用)
 EnableTitleCheck=1
-; 原标题 (即便其是乱码。留空表示不检查)
+; 原标题 (即便标题为乱码亦可。留空表示不检查)
 OriginalWindowTitle=
 ; 新标题 (留空表示不修改)
 NewWindowTitle=
@@ -224,9 +223,9 @@ LogFile=celica_hook.log
 
 1. 如果不知道游戏的实际窗口标题，可以启用日志功能，在日志中查看实际捕获的窗口标题
 2. 如果希望修改所有窗口标题，可以将 `OriginalWindowTitle` 留空
-3. 如果希望禁用标题检查直接修改所有标题，可以设置 `EnableTitleCheck=0`
+3. (危险操作)如果希望禁用标题检查直接修改所有标题，可以设置 `EnableTitleCheck=0`
 
-### 6. 启动弹窗功能(仅注入器模式有效)
+### 6. 启动弹窗功能
 
 **功能说明：**
 
@@ -244,7 +243,7 @@ LogFile=celica_hook.log
 
 **注意事项：**
 
-- 弹窗信息在`settings.h`中定义，用户无法修改
+- 弹窗信息在`settings.h`中定义，用户无法直接修改
 
 ### 7. Locale Emulator转区功能配置
 
