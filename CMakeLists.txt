@@ -9,19 +9,31 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 设置目标平台为32位x86
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    # 对于MSVC，使用平台工具集而不是-m32标志
-    set(CMAKE_GENERATOR_PLATFORM "Win32")
+    # x86_64
+    set(CELICA_HOOK_ARCH "x64")
+    # Detours 要求显式定义 _X86_ 或 _AMD64_ 来选择 x86/x64 代码路径
+    set(CELICA_HOOK_ARCH_DEFINES WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _AMD64_)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/x64)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/x64)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/x64)
+else()
+    # 32Bit x86
+    set(CELICA_HOOK_ARCH "x86")
+    set(CELICA_HOOK_ARCH_DEFINES WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _X86_)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/x86)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/x86)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/x86)
 endif()
 
-# 包含目录
-include_directories(${CMAKE_SOURCE_DIR}/src/detours)
+message(STATUS "CELICA_HOOK: 当前目标架构 = ${CELICA_HOOK_ARCH}")
+
+# 包含目录（架构对应的Detours头文件目录）
+include_directories(${CMAKE_SOURCE_DIR}/src/detours/${CELICA_HOOK_ARCH})
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
-# 设置输出目录
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+# 架构对应的Detours静态库
+set(CELICA_HOOK_DETOURS_LIB ${CMAKE_SOURCE_DIR}/src/detours/${CELICA_HOOK_ARCH}/detours.lib)
 
 # 添加源文件
 add_library(CELICA_HOOK SHARED
@@ -33,17 +45,17 @@ add_library(CELICA_HOOK SHARED
     src/logger.cpp
     src/config_manager.cpp
     src/utils.cpp
-    src/locale_emulator.cpp
+    src/locale_emulator_plus.cpp
 )
 
 # 链接detours库
-target_link_libraries(CELICA_HOOK ${CMAKE_SOURCE_DIR}/src/detours/detours.lib)
+target_link_libraries(CELICA_HOOK ${CELICA_HOOK_DETOURS_LIB})
 
 # Windows API链接
 target_link_libraries(CELICA_HOOK kernel32 user32 gdi32)
 
 # 设置预处理器定义
-target_compile_definitions(CELICA_HOOK PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _X86_)
+target_compile_definitions(CELICA_HOOK PRIVATE ${CELICA_HOOK_ARCH_DEFINES})
 
 # 添加DLL注入器（使用DetourCreateProcessWithDllW）- Windows子系统
 add_executable(CELICA_HOOK_LAUNCHER WIN32
@@ -52,14 +64,15 @@ add_executable(CELICA_HOOK_LAUNCHER WIN32
     src/logger.cpp
     src/utils.cpp
     src/author_window.cpp
-    src/locale_emulator.cpp
+    src/locale_emulator_plus.cpp
 )
 
 # 链接detours库
-target_link_libraries(CELICA_HOOK_LAUNCHER ${CMAKE_SOURCE_DIR}/src/detours/detours.lib)
+target_link_libraries(CELICA_HOOK_LAUNCHER ${CELICA_HOOK_DETOURS_LIB})
 
 # Windows API链接
 target_link_libraries(CELICA_HOOK_LAUNCHER kernel32 user32 gdi32 shlwapi)
 
 # 设置预处理器定义
-target_compile_definitions(CELICA_HOOK_LAUNCHER PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _X86_)
+target_compile_definitions(CELICA_HOOK_LAUNCHER PRIVATE ${CELICA_HOOK_ARCH_DEFINES})
+

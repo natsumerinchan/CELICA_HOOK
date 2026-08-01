@@ -1,9 +1,28 @@
-#include "locale_emulator.h"
+#include "locale_emulator_plus.h"
 #include "settings.h"
 #include "logger.h"
 #include <iostream>
 
-// 基于LELOADER的结构定义
+// ============================================================================
+// Locale Emulator Plus (LEP) 转区实现
+// 基于 https://github.com/julixian/LocaleEmulatorPlus-Core.git 的 LoaderDll
+//
+// 需要与游戏置于同一目录的文件：
+//   x86: LoaderDll_x86.dll          + LocaleEmulatorPlus_x86.dll
+//   x64: LoaderDll_x64.dll          + LocaleEmulatorPlus_x64.dll
+// LoaderDll 导出函数: LepCreateProcess / LepCreateProcess2
+// ============================================================================
+
+// 依据目标架构选择 LEP LoaderDll 与核心 DLL 文件名
+#ifdef _WIN64
+#define LEP_LOADER_DLL_NAME   L"LoaderDll_x64.dll"
+#define LEP_CORE_DLL_NAME     L"LocaleEmulatorPlus_x64.dll"
+#else
+#define LEP_LOADER_DLL_NAME   L"LoaderDll_x86.dll"
+#define LEP_CORE_DLL_NAME     L"LocaleEmulatorPlus_x86.dll"
+#endif
+
+// 基于LEP LoaderDll的结构定义
 typedef struct ML_PROCESS_INFORMATION : PROCESS_INFORMATION
 {
     PVOID FirstCallLdrLoadDll;
@@ -71,6 +90,7 @@ typedef struct
     REGISTRY_ENTRY64 Redirected;
 } REGISTRY_REDIRECTION_ENTRY64, * PREGISTRY_REDIRECTION_ENTRY64;
 
+// LocaleEmulatorPlus 环境块 (LEPB)
 typedef struct
 {
     ULONG                           AnsiCodePage;
@@ -82,28 +102,14 @@ typedef struct
     RTL_TIME_ZONE_INFORMATION       Timezone;
     ULONG64                         NumberOfRegistryRedirectionEntries;
     REGISTRY_REDIRECTION_ENTRY64    RegistryReplacement[1];
-} LOCALE_ENUMLATOR_ENVIRONMENT_BLOCK, * PLOCALE_ENUMLATOR_ENVIRONMENT_BLOCK, LEB, * PLEB;
+} LOCALE_EMULATOR_PLUS_ENVIRONMENT_BLOCK, * PLOCALE_EMULATOR_PLUS_ENVIRONMENT_BLOCK, LEPB, * PLEPB;
 
-typedef DWORD(WINAPI* LeCreateProcess_t)(
-    PLEB                    leb,
-    PCWSTR                  applicationName,
-    PCWSTR                  commandLine,
-    PCWSTR                  currentDirectory,
-    ULONG                   creationFlags,
-    LPSTARTUPINFOW          startupInfo,
-    PML_PROCESS_INFORMATION processInformation,
-    LPSECURITY_ATTRIBUTES   processAttributes,
-    LPSECURITY_ATTRIBUTES   threadAttributes,
-    PVOID                   environment,
-    HANDLE                  token
-    );
-
-LocaleEmulator& LocaleEmulator::getInstance() {
-    static LocaleEmulator instance;
+LocaleEmulatorPlus& LocaleEmulatorPlus::getInstance() {
+    static LocaleEmulatorPlus instance;
     return instance;
 }
 
-bool LocaleEmulator::initialize() {
+bool LocaleEmulatorPlus::initialize() {
     if (m_initialized) {
         return true;
     }
@@ -125,11 +131,13 @@ bool LocaleEmulator::initialize() {
     m_charset = config.localeCharset;
     m_timezone = config.timezone;
     
-    Logger::getInstance().log(L"转区功能已初始化");
+    Logger::getInstance().log(L"转区功能已初始化 (LocaleEmulatorPlus)");
     Logger::getInstance().log(L"代码页: " + std::to_wstring(m_codepage));
     Logger::getInstance().log(L"区域ID: " + std::to_wstring(m_localeId));
     Logger::getInstance().log(L"字符集: " + std::to_wstring(m_charset));
     Logger::getInstance().log(L"时区: " + m_timezone);
+    Logger::getInstance().log(std::wstring(L"LoaderDll: ") + LEP_LOADER_DLL_NAME);
+    Logger::getInstance().log(std::wstring(L"核心DLL: ") + LEP_CORE_DLL_NAME);
     
     m_enabled = true;
     m_initialized = true;
@@ -137,7 +145,7 @@ bool LocaleEmulator::initialize() {
     return true;
 }
 
-bool LocaleEmulator::needsLocaleEmulation() const {
+bool LocaleEmulatorPlus::needsLocaleEmulation() const {
     if (!m_enabled) {
         return false;
     }
@@ -155,7 +163,7 @@ bool LocaleEmulator::needsLocaleEmulation() const {
     return true;
 }
 
-bool LocaleEmulator::performLocaleEmulation() {
+bool LocaleEmulatorPlus::performLocaleEmulation() {
     if (!m_enabled) {
         Logger::getInstance().log(L"转区功能未启用");
         return false;
@@ -178,11 +186,26 @@ bool LocaleEmulator::performLocaleEmulation() {
     }
 }
 
-bool LocaleEmulator::relaunchProcess() {
+// LEP LoaderDll 导出的 LepCreateProcess 函数指针类型 (返回 NTSTATUS)
+typedef LONG (WINAPI * LepCreateProcess_t)(
+    PLEPB                   leb,
+    PCWSTR                  applicationName,
+    PWSTR                   commandLine,
+    PCWSTR                  currentDirectory,
+    ULONG                   creationFlags,
+    LPSTARTUPINFOW          startupInfo,
+    PML_PROCESS_INFORMATION processInformation,
+    LPSECURITY_ATTRIBUTES   processAttributes,
+    LPSECURITY_ATTRIBUTES   threadAttributes,
+    PVOID                   environment,
+    HANDLE                  token
+    );
+
+bool LocaleEmulatorPlus::relaunchProcess() {
     Logger::getInstance().log(L"尝试重新启动进程，代码页: " + std::to_wstring(m_codepage));
 
-    // 基于LELOADER的实现
-    LEB leb{};
+    // 基于LEP LoaderDll的实现
+    LEPB leb{};
     leb.AnsiCodePage = m_codepage;
     leb.OemCodePage = m_codepage;
     leb.LocaleID = m_localeId;
@@ -212,7 +235,8 @@ bool LocaleEmulator::relaunchProcess() {
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(nullptr, exePath, std::size(exePath));
 
-    const wchar_t* commandLine = GetCommandLineW();
+    // LEP 的 LepCreateProcess 需要可修改的命令行缓冲区 (PWSTR)
+    PWSTR commandLine = GetCommandLineW();
 
     wchar_t currentDirectory[MAX_PATH];
     GetCurrentDirectoryW(std::size(currentDirectory), currentDirectory);
@@ -221,21 +245,22 @@ bool LocaleEmulator::relaunchProcess() {
     startInfo.cb = sizeof(startInfo);
     ML_PROCESS_INFORMATION processInfo{};
 
-    // 尝试加载LoaderDll.dll
-    const HMODULE hLoader = LoadLibraryA("LoaderDll.dll");
+    // 尝试加载 LEP LoaderDll
+    const HMODULE hLoader = LoadLibraryW(LEP_LOADER_DLL_NAME);
     if (hLoader == nullptr) {
-        Logger::getInstance().log(L"无法加载LoaderDll.dll，转区功能需要此文件");
+        Logger::getInstance().log(std::wstring(L"无法加载") + LEP_LOADER_DLL_NAME +
+            L"，转区功能需要该文件与" + LEP_CORE_DLL_NAME + L"同时存在于游戏目录");
         return false;
     }
 
-    const auto LeCreateProcess = reinterpret_cast<LeCreateProcess_t>(GetProcAddress(hLoader, "LeCreateProcess"));
-    if (LeCreateProcess == nullptr) {
-        Logger::getInstance().log(L"无法找到LeCreateProcess函数");
+    const auto fnLepCreateProcess = reinterpret_cast<LepCreateProcess_t>(GetProcAddress(hLoader, "LepCreateProcess"));
+    if (fnLepCreateProcess == nullptr) {
+        Logger::getInstance().log(L"无法找到LepCreateProcess函数");
         FreeLibrary(hLoader);
         return false;
     }
 
-    const auto result = LeCreateProcess(
+    const auto result = fnLepCreateProcess(
         &leb,
         exePath,
         commandLine,
@@ -257,17 +282,18 @@ bool LocaleEmulator::relaunchProcess() {
         ExitProcess(0);
         return true;
     } else {
-        Logger::getInstance().log(L"LeCreateProcess失败，错误代码: " + std::to_wstring(result));
+        Logger::getInstance().log(L"LepCreateProcess失败，错误代码: " + std::to_wstring(result));
         return false;
     }
 }
 
-bool LocaleEmulator::setupTimezone() {
+bool LocaleEmulatorPlus::setupTimezone() {
     // 时区设置已经在relaunchProcess中处理
     return true;
 }
 
-bool LocaleEmulator::createProcessWithLocale(const std::wstring& applicationPath) {
+
+bool LocaleEmulatorPlus::createProcessWithLocale(const std::wstring& applicationPath) {
     // 确保转区功能已初始化
     if (!initialize()) {
         return false;
@@ -293,8 +319,8 @@ bool LocaleEmulator::createProcessWithLocale(const std::wstring& applicationPath
         );
     }
     
-    // 基于LELOADER的实现
-    LEB leb{};
+    // 基于LEP LoaderDll的实现
+    LEPB leb{};
     leb.AnsiCodePage = m_codepage;
     leb.OemCodePage = m_codepage;
     leb.LocaleID = m_localeId;
@@ -328,22 +354,23 @@ bool LocaleEmulator::createProcessWithLocale(const std::wstring& applicationPath
     startInfo.cb = sizeof(startInfo);
     ML_PROCESS_INFORMATION processInfo{};
 
-    // 尝试加载LoaderDll.dll
-    const HMODULE hLoader = LoadLibraryA("LoaderDll.dll");
+    // 尝试加载 LEP LoaderDll
+    const HMODULE hLoader = LoadLibraryW(LEP_LOADER_DLL_NAME);
     if (hLoader == nullptr) {
-        Logger::getInstance().log(L"无法加载LoaderDll.dll，转区功能需要此文件");
+        Logger::getInstance().log(std::wstring(L"无法加载") + LEP_LOADER_DLL_NAME +
+            L"，转区功能需要该文件与" + LEP_CORE_DLL_NAME + L"同时存在于游戏目录");
         return false;
     }
 
-    const auto LeCreateProcess = reinterpret_cast<LeCreateProcess_t>(GetProcAddress(hLoader, "LeCreateProcess"));
-    if (LeCreateProcess == nullptr) {
-        Logger::getInstance().log(L"无法找到LeCreateProcess函数");
+    const auto fnLepCreateProcess = reinterpret_cast<LepCreateProcess_t>(GetProcAddress(hLoader, "LepCreateProcess"));
+    if (fnLepCreateProcess == nullptr) {
+        Logger::getInstance().log(L"无法找到LepCreateProcess函数");
         FreeLibrary(hLoader);
         return false;
     }
 
     // 使用转区设置启动目标程序
-    const auto result = LeCreateProcess(
+    const auto result = fnLepCreateProcess(
         &leb,
         applicationPath.c_str(),  // 目标程序路径
         NULL,                     // 命令行参数
@@ -373,3 +400,4 @@ bool LocaleEmulator::createProcessWithLocale(const std::wstring& applicationPath
         return false;
     }
 }
+

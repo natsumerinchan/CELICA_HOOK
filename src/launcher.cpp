@@ -8,7 +8,7 @@
 #include "logger.h"
 #include "author_window.h"
 #include "utils.h"
-#include "locale_emulator.h"
+#include "locale_emulator_plus.h"
 
 #pragma comment(lib, "shlwapi.lib")
 
@@ -96,7 +96,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     std::wcout << std::endl;
 
     // 检查是否需要转区
-    LocaleEmulator& localeEmulator = LocaleEmulator::getInstance();
+    LocaleEmulatorPlus& localeEmulator = LocaleEmulatorPlus::getInstance();
     if (config.enableLocaleEmulation) {
         std::wcout << L"检测到需要转区，先转区启动目标程序..." << std::endl;
         

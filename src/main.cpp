@@ -6,7 +6,7 @@
 #include "logger.h"
 #include "hook_manager.h"
 #include "utils.h" 
-#include "locale_emulator.h"
+#include "locale_emulator_plus.h"
 
 // DLL导出函数声明
 extern "C" __declspec(dllexport) BOOL WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved);
@@ -29,7 +29,7 @@ struct GlobalInitializer {
         }
         
         // 初始化转区功能
-        LocaleEmulator::getInstance().initialize();
+        LocaleEmulatorPlus::getInstance().initialize();
     }
 };
 
@@ -46,7 +46,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
             Logger::getInstance().log(L"进程ID: " + std::to_wstring(GetCurrentProcessId()));
             
             // 执行转区操作
-            if (LocaleEmulator::getInstance().performLocaleEmulation()) {
+            if (LocaleEmulatorPlus::getInstance().performLocaleEmulation()) {
                 Logger::getInstance().log(L"转区操作已执行，进程将重新启动");
                 return TRUE;
             }

@@ -1,14 +1,15 @@
 #pragma once
-#ifndef LOCALE_EMULATOR_H
-#define LOCALE_EMULATOR_H
+#ifndef LOCALE_EMULATOR_PLUS_H
+#define LOCALE_EMULATOR_PLUS_H
 
 #include <windows.h>
 #include <string>
 
-// 基于LELOADER的转区功能实现
-class LocaleEmulator {
+// 基于LocaleEmulatorPlus(LEP) LoaderDll的转区功能实现
+// 参考: https://github.com/julixian/LocaleEmulatorPlus-Core.git
+class LocaleEmulatorPlus {
 public:
-    static LocaleEmulator& getInstance();
+    static LocaleEmulatorPlus& getInstance();
     
     // 初始化转区功能
     bool initialize();
@@ -26,14 +27,14 @@ public:
     bool isLocaleEmulationEnabled() const { return m_enabled; }
     
 private:
-    LocaleEmulator() = default;
-    ~LocaleEmulator() = default;
+    LocaleEmulatorPlus() = default;
+    ~LocaleEmulatorPlus() = default;
     
     // 禁用拷贝和赋值
-    LocaleEmulator(const LocaleEmulator&) = delete;
-    LocaleEmulator& operator=(const LocaleEmulator&) = delete;
+    LocaleEmulatorPlus(const LocaleEmulatorPlus&) = delete;
+    LocaleEmulatorPlus& operator=(const LocaleEmulatorPlus&) = delete;
     
-    // 重新启动进程（基于LELOADER的实现）
+    // 重新启动进程（基于LEP LoaderDll的实现）
     bool relaunchProcess();
     
     // 设置时区信息
@@ -49,4 +50,4 @@ private:
     std::wstring m_timezone = L"Tokyo Standard Time";
 };
 
-#endif // LOCALE_EMULATOR_H
+#endif // LOCALE_EMULATOR_PLUS_H

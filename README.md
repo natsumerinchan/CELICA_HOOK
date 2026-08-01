@@ -1,6 +1,6 @@
 # CELICA_HOOK
 
-一个基于Detours的C++编写的32位x86平台的游戏程序hook工具，主要用于游戏翻译。
+一个基于Detours的C++编写的游戏程序hook工具，支持32位x86和x86_64平台，主要用于游戏翻译。
 
 ## 功能特性
 
@@ -9,7 +9,7 @@
 - **字体修改**: 修改游戏字体和字符集，支持中文显示，支持字体免安装加载
 - **窗口标题修改**: 修改游戏窗口标题，支持ANSI和Unicode版本
 - **启动弹窗**: 游戏启动时显示作者信息弹窗，倒计时5秒后继续运行游戏
-- **自动转区**: 在[xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git)的作用下自动转区
+- **自动转区**: 在[LocaleEmulatorPlus-Core](https://github.com/julixian/LocaleEmulatorPlus-Core.git) 的作用下自动转区
 - **日志系统**: UTF-8-BOM编码的详细日志输出
 - **配置驱动**: 通过配置文件灵活控制各项功能
 
@@ -22,7 +22,12 @@ CELICA_HOOK/
 ├── README.md              # 项目说明
 ├── detours/               # Detours库文件
 │   ├── detours.h
-│   └── detours.lib
+│   ├── x86
+│   │    ├── detours.lib
+│   │    └── detours.h(软链接)
+│   └── x64
+│        ├── detours.lib
+│        └── detours.h(软链接)
 └── src/                   # 源代码
     ├── main.cpp           # 主程序入口
     ├── settings.h         # 配置管理头文件
@@ -40,8 +45,8 @@ CELICA_HOOK/
     ├── font_hook.cpp      # 字体hook实现
     ├── window_title_hook.h    # 窗口标题hook头文件
     ├── window_title_hook.cpp  # 窗口标题hook实现
-    ├── locale_emulator.h      # 转区功能头文件
-    ├── locale_emulator.cpp    # 转区功能实现
+    ├── locale_emulator_plus.h      # 转区功能头文件
+    ├── locale_emulator_plus.cpp    # 转区功能实现
     ├── utils.h            # 工具类头文件
     └── utils.cpp          # 工具类实现
 ```
@@ -70,6 +75,10 @@ git clone https://github.com/natsumerinchan/CELICA_HOOK.git
 #### 注入方法
 
 - 在`CELICA_HOOK.ini`中的`TargetProcess=`配置目标程序，使用`CELICA_HOOK_LAUNCHER.exe`(可自行重命名)启动游戏
+- 编译产物位于对应架构的输出目录（`bin\x86` 或 `bin\x64`），使用时需将
+  `CELICA_HOOK.dll`、`CELICA_HOOK_LAUNCHER.exe` 与 `celica_hook.ini` 一同放入游戏根目录
+- 若启用转区功能，还需将对应架构的 `LoaderDll_x86.dll`/`LoaderDll_x64.dll` 与
+  `LocaleEmulatorPlus_x86.dll`/`LocaleEmulatorPlus_x64.dll` 放入游戏根目录（见下文转区说明）
 
 ## 使用方法
 
@@ -245,11 +254,13 @@ LogFile=celica_hook.log
 
 - 弹窗信息在`settings.h`中定义，用户无法直接修改
 
-### 7. Locale Emulator转区功能配置
+### 7. Locale Emulator Plus (LEP) 转区功能配置
 
 **功能说明：**
 
 转区功能通过重新启动游戏进程来模拟目标区域的语言环境设置，解决某些游戏在非原生语言环境下运行的问题。
+本功能基于 [LocaleEmulatorPlus-Core](https://github.com/julixian/LocaleEmulatorPlus-Core.git)，
+由 LEP 的 `LoaderDll` 通过 `LepCreateProcess` 导出函数启动目标程序。
 
 **配置参数：**
 
@@ -270,13 +281,16 @@ LogFile=celica_hook.log
 - 转区功能**直接使用[Font]中的Charset**
 - 当系统代码页与目标代码页不同时，会自动触发转区操作
 - 转区操作会重新启动游戏进程
-- 需要自备[Locale Emulator](https://github.com/xupefei/Locale-Emulator.git)的`LoaderDll.dll`和`LocaleEmulator.dll`文件，请确保这两个文件存在于游戏目录
+- 需要自备 [LocaleEmulatorPlus-Core](https://github.com/julixian/LocaleEmulatorPlus-Core.git) 的 LoaderDll 与核心 DLL，且架构必须与游戏一致：
+  - **32位x86游戏**：`LoaderDll_x86.dll` + `LocaleEmulatorPlus_x86.dll`
+  - **x86_64游戏**：`LoaderDll_x64.dll` + `LocaleEmulatorPlus_x64.dll`
+  - 请确保上述文件与 `CELICA_HOOK.dll`、`CELICA_HOOK_LAUNCHER.exe` 一同存在于游戏根目录
 
 **工作流程：**
 
 1. 检查当前系统代码页与目标代码页是否一致
-2. 如果不一致，创建新的区域环境块(LEB)
-3. 使用LoaderDll.dll重新启动游戏进程
+2. 如果不一致，创建新的区域环境块(LEPB)
+3. 加载对应架构的`LoaderDll_x86.dll`/`LoaderDll_x64.dll`并调用`LepCreateProcess`重新启动游戏进程
 4. 新进程在目标区域环境下运行
 
 ## Hook的函数
@@ -309,7 +323,7 @@ LogFile=celica_hook.log
 
 ## 注意事项
 
-1. 本项目仅支持32位x86应用程序
+1. 支持32位x86与x86_64应用程序，启动器和DLL的架构必须与目标程序一致（x86游戏用x86产物，x64游戏用x64产物）
 2. 使用前请备份重要文件
 3. 某些游戏可能有反调试反作弊保护，注入前请确认
 4. 日志文件会记录详细的hook操作，可用于调试
@@ -325,4 +339,4 @@ LogFile=celica_hook.log
 ## Credits
 
 - [microsoft/Detours](https://github.com/microsoft/Detours.git): Detours is a software package for monitoring and instrumenting API calls on Windows. It is distributed in source code form.
-- [xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git) :转区工具
+- [julixian/LocaleEmulatorPlus-Core](https://github.com/julixian/LocaleEmulatorPlus-Core.git) :转区工具,[xupefei/Locale-Emulator](https://github.com/xupefei/Locale-Emulator.git)改进版
