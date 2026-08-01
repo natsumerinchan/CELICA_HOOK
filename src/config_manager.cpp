@@ -75,6 +75,8 @@ bool ConfigManager::loadConfig(const std::wstring& configFile) {
         
         // 构建重定向映射
         buildRedirectMap();
+        // 重建缓存列表
+        rebuildCachedLists();
         
         Logger::getInstance().log(L"配置文件加载完成");
         return true;
@@ -155,9 +157,12 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
 }
 
 void ConfigManager::buildRedirectMap() {
+    m_redirectMap.clear();
+    
     if (!m_config.enableFileRedirect) return;
     
-    std::wstring redirectPath = getGameDirectory() + L"\\" + m_config.redirectFolder;
+    std::wstring gameDir = getGameDirectory();
+    std::wstring redirectPath = Utils::combinePaths(gameDir, m_config.redirectFolder);
     if (!Utils::directoryExists(redirectPath)) {
         Logger::getInstance().log(L"重定向文件夹不存在: " + redirectPath);
         return;
@@ -170,13 +175,16 @@ void ConfigManager::buildRedirectMap() {
     for (const auto& file : files) {
         // 构建相对路径映射
         std::wstring relativePath = file.substr(redirectPath.length() + 1);
+        // 归一化分隔符并转小写作为 key（Windows 不区分大小写）
+        relativePath = Utils::normalizePath(relativePath);
+        std::wstring lowerKey = Utils::toLower(relativePath);
         
         // 检查扩展名（如果启用）
         if (m_config.enableExtensionCheck && !Utils::isValidExtension(relativePath, m_config.redirectExtensions)) {
             continue;
         }
         
-        m_redirectMap[relativePath] = file;
+        m_redirectMap[lowerKey] = file;
         Logger::getInstance().log(L"映射文件: " + relativePath + L" -> " + file);
     }
     
@@ -184,10 +192,91 @@ void ConfigManager::buildRedirectMap() {
 }
 
 std::wstring ConfigManager::getGameDirectory() {
-    // 获取当前工作目录而不是模块目录
-    wchar_t buffer[MAX_PATH];
-    GetCurrentDirectoryW(MAX_PATH, buffer);
-    return std::wstring(buffer);
+    // 统一使用模块目录（游戏可执行文件所在目录）作为基准，
+    // 避免与 GetCurrentDirectoryW（工作目录）不一致导致重定向失效
+    return Utils::getModuleDirectory();
+}
+
+void ConfigManager::rebuildCachedLists() {
+    m_redirectExtList.clear();
+    m_spoofedFileList.clear();
+    m_spoofedDirList.clear();
+    
+    // 解析扩展名列表（小写）
+    for (auto& ext : Utils::splitCommaList(m_config.redirectExtensions)) {
+        m_redirectExtList.push_back(Utils::toLower(ext));
+    }
+    
+    // 解析欺骗文件列表（归一化 + 小写）
+    for (auto& file : Utils::splitCommaList(m_config.spoofedFiles)) {
+        m_spoofedFileList.push_back(Utils::toLower(Utils::normalizePath(file)));
+    }
+    
+    // 解析欺骗目录列表（归一化 + 小写 + 确保末尾反斜杠）
+    for (auto& dir : Utils::splitCommaList(m_config.spoofedDirectories)) {
+        std::wstring normalized = Utils::toLower(Utils::normalizePath(dir));
+        if (!normalized.empty() && normalized.back() != L'\\') {
+            normalized += L'\\';
+        }
+        if (!normalized.empty()) {
+            m_spoofedDirList.push_back(normalized);
+        }
+    }
+}
+
+bool ConfigManager::findRedirectedPath(const std::wstring& relativePath, std::wstring& outFullPath) const {
+    if (!m_config.enableFileRedirect || m_redirectMap.empty()) return false;
+    
+    // 归一化 + 小写查找
+    std::wstring key = Utils::toLower(Utils::normalizePath(relativePath));
+    auto it = m_redirectMap.find(key);
+    if (it == m_redirectMap.end()) return false;
+    
+    outFullPath = it->second;
+    return true;
+}
+
+bool ConfigManager::isExtensionRedirected(const std::wstring& filename) const {
+    // 如果禁用了扩展名检查，重定向所有文件（由调用方保证 enableFileRedirect 已开启）
+    if (!m_config.enableExtensionCheck) return true;
+    
+    size_t dotPos = filename.find_last_of(L'.');
+    if (dotPos == std::wstring::npos) return false;
+    
+    std::wstring ext = Utils::toLower(filename.substr(dotPos));
+    for (const auto& allowedExt : m_redirectExtList) {
+        if (ext == allowedExt) return true;
+    }
+    
+    return false;
+}
+
+bool ConfigManager::isFileSpoofed(const std::wstring& relativePath) const {
+    if (!m_config.enableFileSpoofing || m_spoofedFileList.empty()) return false;
+    
+    std::wstring key = Utils::toLower(Utils::normalizePath(relativePath));
+    for (const auto& spoofedFile : m_spoofedFileList) {
+        if (key == spoofedFile) return true;
+    }
+    
+    return false;
+}
+
+bool ConfigManager::isDirectorySpoofed(const std::wstring& relativePath) const {
+    if (!m_config.enableFileSpoofing || m_spoofedDirList.empty()) return false;
+    
+    std::wstring normalized = Utils::normalizePath(relativePath);
+    std::wstring lowerPath = Utils::toLower(normalized);
+    
+    // 目录匹配：相对路径是某个欺骗目录或在其子目录下
+    for (const auto& spoofedDir : m_spoofedDirList) {
+        if (lowerPath == spoofedDir || 
+            (lowerPath.size() > spoofedDir.size() && lowerPath.compare(0, spoofedDir.size(), spoofedDir) == 0)) {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 const HookConfig& ConfigManager::getConfig() const {

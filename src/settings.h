@@ -3,6 +3,7 @@
 #define SETTINGS_H
 
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include <windows.h>
 
@@ -84,6 +85,12 @@ public:
     const HookConfig& getConfig() const;
     void setConfig(const HookConfig& config);
     
+    // 文件重定向/欺骗缓存访问接口
+    bool findRedirectedPath(const std::wstring& relativePath, std::wstring& outFullPath) const;
+    bool isExtensionRedirected(const std::wstring& filename) const;
+    bool isFileSpoofed(const std::wstring& relativePath) const;
+    bool isDirectorySpoofed(const std::wstring& relativePath) const;
+    
 private:
     ConfigManager() = default;
     ~ConfigManager() = default;
@@ -91,8 +98,14 @@ private:
     HookConfig m_config;
     std::unordered_map<std::wstring, std::wstring> m_redirectMap;
     
+    // 缓存解析后的配置列表
+    std::vector<std::wstring> m_redirectExtList;   // 小写扩展名列表（含点，如 ".txt"）
+    std::vector<std::wstring> m_spoofedFileList;   // 小写相对路径列表
+    std::vector<std::wstring> m_spoofedDirList;    // 小写相对目录列表（含末尾反斜杠）
+    
     void parseConfigLine(const std::wstring& line);
     void buildRedirectMap();
+    void rebuildCachedLists();
     std::wstring getGameDirectory();
 };
 
