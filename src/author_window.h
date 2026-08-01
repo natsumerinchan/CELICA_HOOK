@@ -14,6 +14,8 @@ public:
     void show();
     void close();
     bool isVisible() const;
+    // 查询用户是否同意声明（true=同意, false=退出）
+    bool shouldLaunch() const;
     
 private:
     AuthorWindow() = default;
@@ -30,6 +32,9 @@ private:
     static HICON findAndLoadGameIcon(const std::wstring& exePath);
     static std::wstring getTargetProcessPath();
     
+    // 绘制按钮
+    static void drawButton(HDC hdc, const RECT& rect, const std::wstring& text, bool hovered);
+    
     HWND m_hwnd = nullptr;
     bool m_visible = false;
     HICON m_hIcon = nullptr; // 存储目标程序图标
@@ -44,7 +49,13 @@ private:
     
     static std::vector<LinkInfo> m_links;
     static bool m_linksInitialized;
-    static int m_countdown; // 新增：用于倒计时的静态变量
+    
+    // 按钮相关状态
+    static RECT m_confirmBtnRect;   // 确认按钮位置
+    static RECT m_cancelBtnRect;    // 退出按钮位置
+    static bool m_confirmHovered;   // 确认按钮悬停状态
+    static bool m_cancelHovered;    // 退出按钮悬停状态
+    static bool m_shouldLaunchFlag; // 用户决策: true=同意, false=退出
     
     static int calculateDisplayWidth(const std::wstring& str);
 };

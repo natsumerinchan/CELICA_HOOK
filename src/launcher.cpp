@@ -34,24 +34,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     
     // 等待窗口关闭（使用消息循环确保窗口正常更新）
     MSG msg;
-    int waitCount = 0;
-    const int maxWaitCount = 100; // 最多等待10秒
     
-    while (AuthorWindow::getInstance().isVisible() && waitCount < maxWaitCount) {
-        // 处理窗口消息，确保倒计时能正常更新
+    while (AuthorWindow::getInstance().isVisible()) {
+        // 处理窗口消息，确保窗口正常响应
         while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
         Sleep(100);
-        waitCount++;
     }
     
-    // 如果窗口仍然可见，强制关闭
-    if (AuthorWindow::getInstance().isVisible()) {
-        AuthorWindow::getInstance().close();
+    // 检查用户选择：如果点击了"退出"按钮，则中止启动
+    if (!AuthorWindow::getInstance().shouldLaunch()) {
+        std::wcout << L"用户选择退出，启动流程已中止" << std::endl;
+        return 0;
     }
-
+    
     // 获取当前目录
     wchar_t currentDir[MAX_PATH];
     GetCurrentDirectoryW(MAX_PATH, currentDir);

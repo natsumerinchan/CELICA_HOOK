@@ -14,7 +14,11 @@
 // 静态成员初始化
 std::vector<AuthorWindow::LinkInfo> AuthorWindow::m_links;
 bool AuthorWindow::m_linksInitialized = false;
-int AuthorWindow::m_countdown = 5; // 初始化倒计时为5秒
+RECT AuthorWindow::m_confirmBtnRect = {};
+RECT AuthorWindow::m_cancelBtnRect = {};
+bool AuthorWindow::m_confirmHovered = false;
+bool AuthorWindow::m_cancelHovered = false;
+bool AuthorWindow::m_shouldLaunchFlag = true; // 默认同意，防止意外退出
 
 AuthorWindow& AuthorWindow::getInstance() {
     static AuthorWindow instance;
@@ -56,6 +60,9 @@ void AuthorWindow::show() {
         return;
     }
     Logger::getInstance().log(L"AuthorWindow::show() - 窗口类注册成功");
+    
+    // 重置用户决策标志，每次显示窗口时都重新等待用户选择
+    m_shouldLaunchFlag = false;
     
     // 获取配置管理器实例
     ConfigManager& configManager = ConfigManager::getInstance();
@@ -127,9 +134,36 @@ bool AuthorWindow::isVisible() const {
     return m_visible;
 }
 
+bool AuthorWindow::shouldLaunch() const {
+    return m_shouldLaunchFlag;
+}
+
+void AuthorWindow::drawButton(HDC hdc, const RECT& rect, const std::wstring& text, bool hovered) {
+    // 设置背景填充
+    HBRUSH bgBrush = CreateSolidBrush(hovered ? RGB(220, 235, 255) : RGB(245, 245, 245));
+    HGDIOBJ oldBrush = SelectObject(hdc, bgBrush);
+    
+    // 设置边框
+    HPEN borderPen = CreatePen(PS_SOLID, 2, hovered ? RGB(0, 120, 215) : RGB(160, 160, 160));
+    HGDIOBJ oldPen = SelectObject(hdc, borderPen);
+    
+    // 绘制圆角矩形按钮
+    RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, 10, 10);
+    
+    SelectObject(hdc, oldPen);
+    DeleteObject(borderPen);
+    SelectObject(hdc, oldBrush);
+    DeleteObject(bgBrush);
+    
+    // 绘制按钮文字
+    SetTextColor(hdc, RGB(0, 0, 0));
+    RECT textRect = rect;
+    DrawTextW(hdc, text.c_str(), -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
 LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     // 为了避免日志过于冗长，可以过滤掉一些高频消息
-    if (uMsg != WM_MOUSEMOVE && uMsg != WM_SETCURSOR && uMsg != WM_NCHITTEST && uMsg != WM_TIMER) {
+    if (uMsg != WM_MOUSEMOVE && uMsg != WM_SETCURSOR && uMsg != WM_NCHITTEST) {
         std::wstringstream msgStream;
         msgStream << L"AuthorWindow::windowProc() - 收到消息: " << uMsg << L" (0x" << std::hex << uMsg << L")";
         Logger::getInstance().log(msgStream.str());
@@ -151,26 +185,7 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 m_linksInitialized = true;
             }
             
-            // 【关键改动】设置一个ID为1的定时器，每1000毫秒（1秒）触发一次
-            SetTimer(hwnd, 1, 1000, NULL);
-            m_countdown = 5; // 重置倒计时
-
             Logger::getInstance().log(L"AuthorWindow::windowProc() - WM_CREATE 完成");
-            return 0;
-        }
-        
-        case WM_TIMER: {
-            if (wParam == 1) { // 检查是否是我们的定时器
-                m_countdown--;
-                if (m_countdown <= 0) {
-                    // 倒计时结束，关闭窗口
-                    Logger::getInstance().log(L"AuthorWindow::windowProc() - 倒计时结束，发送关闭消息");
-                    PostMessage(hwnd, WM_CLOSE, 0, 0);
-                } else {
-                    // 刷新窗口以更新倒计时显示
-                    InvalidateRect(hwnd, NULL, TRUE);
-                }
-            }
             return 0;
         }
             
@@ -186,7 +201,6 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             // 清理资源
             AuthorWindow::getInstance().m_hwnd = nullptr;
             AuthorWindow::getInstance().m_visible = false;
-            KillTimer(hwnd, 1); // 确保定时器被销毁
             
             // 【关键改动】发送退出消息，以终止在 DllMain 中的消息循环
             PostQuitMessage(0);
@@ -196,12 +210,32 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         case WM_LBUTTONDOWN: {
             int xPos = LOWORD(lParam);
             int yPos = HIWORD(lParam);
+            
+            // 检查是否点击了"同意"按钮
+            POINT pt = {xPos, yPos};
+            if (PtInRect(&m_confirmBtnRect, pt)) {
+                Logger::getInstance().log(L"AuthorWindow::windowProc() - 点击同意按钮");
+                m_shouldLaunchFlag = true;
+                PostMessage(hwnd, WM_CLOSE, 0, 0);
+                return 0;
+            }
+            
+            // 检查是否点击了"退出"按钮
+            if (PtInRect(&m_cancelBtnRect, pt)) {
+                Logger::getInstance().log(L"AuthorWindow::windowProc() - 点击退出按钮");
+                m_shouldLaunchFlag = false;
+                PostMessage(hwnd, WM_CLOSE, 0, 0);
+                return 0;
+            }
+            
+            // 否则检查链接点击
             return handleLinkClick(hwnd, xPos, yPos);
         }
             
         case WM_MOUSEMOVE: {
             int xPos = LOWORD(lParam);
             int yPos = HIWORD(lParam);
+            POINT pt = {xPos, yPos};
             bool needRepaint = false;
             
             for (auto& link : m_links) {
@@ -245,6 +279,20 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 if (wasHovered != link.hovered) {
                     needRepaint = true;
                 }
+            }
+            
+            // 检查确认按钮悬停状态
+            bool confirmHovered = PtInRect(&m_confirmBtnRect, pt);
+            if (confirmHovered != m_confirmHovered) {
+                m_confirmHovered = confirmHovered;
+                needRepaint = true;
+            }
+            
+            // 检查退出按钮悬停状态
+            bool cancelHovered = PtInRect(&m_cancelBtnRect, pt);
+            if (cancelHovered != m_cancelHovered) {
+                m_cancelHovered = cancelHovered;
+                needRepaint = true;
             }
             
             if (needRepaint) {
@@ -369,13 +417,23 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 yPos += lineHeight;
             }
             
-            SetTextColor(hdc, RGB(0, 0, 0));
+            // 绘制确认/退出按钮
             yPos += lineHeight * 2;
             
-            // 绘制动态的倒计时信息
-            std::wstring countdownText = L"窗口将在 " + std::to_wstring(m_countdown) + L" 秒后自动关闭...";
-            RECT countdownRect = {0, yPos, rect.right, yPos + lineHeight};
-            DrawTextW(hdc, countdownText.c_str(), -1, &countdownRect, DT_CENTER);
+            int buttonY = yPos;
+            int buttonHeight = 32;
+            int buttonWidth = 120;
+            int spacing = 20;
+            int totalBtnWidth = buttonWidth * 2 + spacing;
+            int startX = (rect.right - totalBtnWidth) / 2;
+            
+            // 同意按钮
+            m_confirmBtnRect = {startX, buttonY, startX + buttonWidth, buttonY + buttonHeight};
+            drawButton(hdc, m_confirmBtnRect, L"同意", m_confirmHovered);
+            
+            // 退出按钮
+            m_cancelBtnRect = {startX + buttonWidth + spacing, buttonY, startX + buttonWidth * 2 + spacing, buttonY + buttonHeight};
+            drawButton(hdc, m_cancelBtnRect, L"退出", m_cancelHovered);
             
             SelectObject(hdc, hOldFont);
             DeleteObject(hFont);
