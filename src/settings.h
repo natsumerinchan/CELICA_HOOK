@@ -22,8 +22,8 @@ struct LinkInfo {
 static const LinkInfo WINDOW_LINKS[] = {
     {L"补丁仓库: ", L"https://github.com/natsumerinchan/MyGalTranslationPatches.git"},
     {L"御爱同萌: ", L"https://www.ai2.moe/profile/13275-natsumerin"},
-    {L"鲲Galgame补丁站: ", L"https://www.moyu.moe/user/47/resource"},
-    {L"HOOK项目仓库: ", L"https://github.com/natsumerinchan/CELICA_HOOK.git"}
+    {L"鲲Galgame补丁站: ", L"https://www.moyu.moe/user/18361/resource"},
+    {L"CELICA_HOOK仓库: ", L"https://github.com/natsumerinchan/CELICA_HOOK.git"}
 };
 
 static const int WINDOW_LINKS_COUNT = sizeof(WINDOW_LINKS) / sizeof(WINDOW_LINKS[0]);
