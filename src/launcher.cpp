@@ -104,11 +104,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         if (localeEmulator.createProcessWithLocale(targetPath)) {
             std::wcout << L"转区启动成功，等待进程稳定后注入DLL..." << std::endl;
             
-            // 等待一段时间让进程稳定
-            Sleep(2000);
-            
-            // 查找目标进程
-            DWORD processId = findProcessByPath(targetPath);
+            // 等待一小段时间让LEP LoaderDll完成注入初始化，避免与加载器锁竞争
+            const DWORD startTick = GetTickCount();
+            const DWORD maxWaitMs = 3000;
+            Sleep(300);
+
+            // 轮询查找目标进程，找到后立即注入（避免窗口创建后才注入导致错过标题hook）
+            DWORD processId = 0;
+            while (GetTickCount() - startTick < maxWaitMs) {
+                processId = findProcessByPath(targetPath);
+                if (processId != 0) {
+                    break;
+                }
+                Sleep(50);
+            }
+
             if (processId != 0) {
                 std::wcout << L"找到目标进程ID: " << processId << L"，开始注入DLL..." << std::endl;
                 

@@ -71,6 +71,11 @@ bool WindowTitleHook::initialize() {
     m_initialized = true;
     Logger::getInstance().log(L"窗口标题hook初始化完成");
     
+    // 对已经存在的窗口重新应用标题修改
+    // （转区模式下DLL是游戏启动后才注入的，主窗口可能已在注入前创建，
+    //   此时CreateWindowEx/SetWindowText hook无法捕获窗口创建时的标题设置）
+    reapplyExistingWindowTitles();
+    
     return true;
 }
 
@@ -106,10 +111,11 @@ HWND WINAPI WindowTitleHook::HookedCreateWindowExW(
     LPVOID lpParam
 ) {
     LPCWSTR processedWindowName = lpWindowName;
-    
+    // 修复：newTitle必须保持存活到Original调用结束，否则c_str()是悬垂指针
+    std::wstring newTitle;
     if (lpWindowName != nullptr) {
         std::wstring originalTitle(lpWindowName);
-        std::wstring newTitle = processWindowTitle(originalTitle);
+        newTitle = processWindowTitle(originalTitle);
         
         if (newTitle != originalTitle) {
             Logger::getInstance().log(L"CreateWindowExW: 修改窗口标题");
@@ -137,10 +143,11 @@ HWND WINAPI WindowTitleHook::HookedCreateWindowExW(
 
 BOOL WINAPI WindowTitleHook::HookedSetWindowTextW(HWND hWnd, LPCWSTR lpString) {
     LPCWSTR processedString = lpString;
-    
+    // 修复：newTitle必须保持存活到Original调用结束，否则c_str()是悬垂指针
+    std::wstring newTitle;
     if (lpString != nullptr) {
         std::wstring originalTitle(lpString);
-        std::wstring newTitle = processWindowTitle(originalTitle);
+        newTitle = processWindowTitle(originalTitle);
         
         if (newTitle != originalTitle) {
             Logger::getInstance().log(L"SetWindowTextW: 修改窗口标题");
@@ -311,4 +318,88 @@ bool WindowTitleHook::isTitleMatch(const std::wstring& originalTitle, const std:
     std::transform(expectedLower.begin(), expectedLower.end(), expectedLower.begin(), std::towlower);
     
     return originalLower == expectedLower;
+}
+void WindowTitleHook::reapplyExistingWindowTitles() {
+    // 在后台线程执行标题重新应用，避免在DllMain（持有加载器锁）期间
+    // 跨线程向游戏主线程发送窗口消息导致死锁
+    HANDLE hThread = CreateThread(NULL, 0, reapplyThreadProc, NULL, 0, NULL);
+    if (hThread != NULL) {
+        CloseHandle(hThread);
+    }
+}
+
+// 后台线程：等待DllMain返回（加载器锁释放）且游戏完成初始加载后，
+// 枚举已有窗口并重新应用标题修改；窗口稍晚创建时通过多次重试覆盖。
+DWORD WINAPI WindowTitleHook::reapplyThreadProc(LPVOID lpParam) {
+
+    Logger::getInstance().log(L"开始对已有窗口重新应用标题修改");
+
+    // 多次重试，覆盖游戏窗口稍晚才创建的情况
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        if (applyTitlesToExistingWindows()) {
+            break;
+        }
+        Sleep(500);
+    }
+
+    Logger::getInstance().log(L"已有窗口标题重新应用完成");
+    return 0;
+}
+
+// 枚举当前进程的顶层窗口，对匹配的窗口重新应用标题修改。
+// 返回true表示本次找到了匹配窗口（后续无需继续重试）。
+bool WindowTitleHook::applyTitlesToExistingWindows() {
+    const HookConfig& config = ConfigManager::getInstance().getConfig();
+    if (!config.enableWindowTitleHook) {
+        return true;
+    }
+    if (config.newWindowTitle.empty()) {
+        return true;
+    }
+
+    bool foundAny = false;
+
+    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
+        // 只处理当前进程的顶层窗口
+        DWORD pid = 0;
+        GetWindowThreadProcessId(hwnd, &pid);
+        if (pid != GetCurrentProcessId()) {
+            return TRUE;
+        }
+
+        wchar_t buffer[1024] = { 0 };
+        const int len = GetWindowTextW(hwnd, buffer, 1024);
+        if (len <= 0) {
+            return TRUE;
+        }
+
+        const std::wstring currentTitle(buffer, len);
+        const std::wstring newTitle = processWindowTitle(currentTitle);
+
+        if (newTitle != currentTitle) {
+            *reinterpret_cast<bool*>(lParam) = true;
+
+            // 检查新标题能否在当前ANSI代码页下无损表示；不能则跳过，
+            // 避免在转区（如日文CP932）下把中文标题设置成"??????"
+            int aLen = WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, nullptr, 0, nullptr, nullptr);
+            std::string ansiTitle(aLen > 0 ? aLen : 1, L"\0"[0]);
+            if (aLen > 0) { WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, &ansiTitle[0], aLen, nullptr, nullptr); }
+            int wLen = MultiByteToWideChar(CP_ACP, 0, ansiTitle.c_str(), -1, nullptr, 0);
+            std::wstring roundTrip(wLen > 0 ? wLen : 1, L"\0"[0]);
+            if (wLen > 0) { MultiByteToWideChar(CP_ACP, 0, ansiTitle.c_str(), -1, &roundTrip[0], wLen); }
+            if (wLen > 0) { roundTrip.resize(wLen - 1); }
+            if (roundTrip == newTitle) {
+                Logger::getInstance().log(L"重新应用窗口标题: " + currentTitle + L" -> " + newTitle);
+                // 使用带超时的消息发送，避免游戏主线程忙碌时无限阻塞后台线程
+                SendMessageTimeoutW(hwnd, WM_SETTEXT, 0, (LPARAM)newTitle.c_str(),
+                    SMTO_ABORTIFHUNG, 1000, nullptr);
+            } else {
+                Logger::getInstance().log(L"新标题无法在当前ANSI代码页下表示，跳过: " + newTitle);
+            }
+        }
+
+        return TRUE;
+    }, (LPARAM)&foundAny);
+
+    return foundAny;
 }

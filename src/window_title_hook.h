@@ -91,6 +91,17 @@ private:
     static bool shouldCheckTitle(const std::wstring& originalTitle);
     static bool isTitleMatch(const std::wstring& originalTitle, const std::wstring& expectedTitle);
     
+    // 对当前进程中已经存在的窗口重新应用标题修改
+    // （用于DLL在游戏窗口创建后才注入的情况，例如启用了自动转区时）
+    static void reapplyExistingWindowTitles();
+    
+    // 后台线程入口：等待DllMain返回（加载器锁释放）后再重新应用标题，
+    // 避免在DllMain持有加载器锁期间跨线程发送窗口消息造成死锁
+    static DWORD WINAPI reapplyThreadProc(LPVOID lpParam);
+    
+    // 枚举当前进程顶层窗口并应用标题修改；返回true表示已找到匹配窗口
+    static bool applyTitlesToExistingWindows();
+    
     bool m_initialized = false;
 };
 
