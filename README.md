@@ -75,7 +75,8 @@ git clone https://github.com/natsumerinchan/CELICA_HOOK.git
 #### 注入方法
 
 - 在`CELICA_HOOK.ini`中的`TargetProcess=`配置目标程序，使用`CELICA_HOOK_LAUNCHER.exe`(可自行重命名)启动游戏
-- 编译产物位于对应架构的输出目录（`bin\x86` 或 `bin\x64`），使用时需将
+- 编译产物位于对应架构与构建类型的输出目录（如 `bin\x86\Release`、`bin\x64\Release`、
+  `bin\x86\Debug`、`bin\x64\Debug`），使用时需将
   `CELICA_HOOK.dll`、`CELICA_HOOK_LAUNCHER.exe` 与 `celica_hook.ini` 一同放入游戏根目录
 - 若启用转区功能，还需将对应架构的 `LoaderDll_x86.dll`/`LoaderDll_x64.dll` 与
   `LocaleEmulatorPlus_x86.dll`/`LocaleEmulatorPlus_x64.dll` 放入游戏根目录（见下文转区说明）

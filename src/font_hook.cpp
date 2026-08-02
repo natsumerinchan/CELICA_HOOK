@@ -8,6 +8,46 @@
 // 使用Windows SDK中已定义的SHIFTJIS_CHARSET
 // #define SHIFTJIS_CHARSET 0x80  // Windows SDK中已定义
 
+// 将 int 字符集安全转换为 BYTE：超出 0-255 范围的配置值会被钳制，
+// 避免 C4244 截断告警与意外的数据丢失
+static BYTE charsetToByte(int charset) {
+    if (charset < 0) return 0;
+    if (charset > 0xFF) return 0xFF;
+    return static_cast<BYTE>(charset);
+}
+
+// 按字体字符集选择对应的 ANSI 代码页。
+// 游戏（尤其日文引擎）通常按自身字符集的代码页解码 ANSI 字体名，
+// 若一律使用系统 CP_ACP（如中文系统=936），日文字体名会被转成
+// GBK 字节，游戏按 CP932 解码后即出现 "! ) $ *" 一类乱码。
+static UINT charsetToCodepage(BYTE charset) {
+    switch (charset) {
+        case SHIFTJIS_CHARSET:    return 932;  // 日文 Shift-JIS
+        case HANGEUL_CHARSET:     return 949;  // 韩文
+        case GB2312_CHARSET:      return 936;  // 简体中文
+        case CHINESEBIG5_CHARSET: return 950;  // 繁体中文
+        default:                  return CP_ACP;
+    }
+}
+
+// 将宽字符字体名按指定字符集转换回 ANSI。
+// 目标代码页无法表示时回退到系统 ANSI 代码页，避免返回空名导致空白字体项。
+static std::string wideToANSIWithCharset(const std::wstring& wstr, BYTE charset) {
+    if (wstr.empty()) return "";
+
+    const UINT codepage = charsetToCodepage(charset);
+    int size = WideCharToMultiByte(codepage, 0, wstr.c_str(), (int)wstr.size(), NULL, 0, NULL, NULL);
+    if (size > 0) {
+        std::string result(size, 0);
+        if (WideCharToMultiByte(codepage, 0, wstr.c_str(), (int)wstr.size(), &result[0], size, NULL, NULL) > 0) {
+            return result;
+        }
+    }
+
+    // 回退到系统 ANSI 代码页
+    return Utils::wstringToANSI(wstr);
+}
+
 // 按指定代码页将ANSI字符串转换为UTF-16 - 绕过代码页hook直接处理
 static std::wstring convertCodePageToUTF16(const std::string& ansiStr, UINT codePage) {
     if (ansiStr.empty()) return L"";
@@ -37,8 +77,10 @@ static std::wstring convertCodePageToUTF16(const std::string& ansiStr, UINT code
 }
 
 // 根据字符集将ANSI字体名转换为UTF-16
-// 注意：仅对Shift-JIS(日文0x80)做代码页932转换，其他字符集保持默认转换，
-// 与原始实现行为一致
+// 注意：仅对Shift-JIS(日文0x80)做代码页932转换，其他字符集保持默认转换。
+// 关键修复：游戏传入的 ANSI 字体名是系统代码页（如中文系统=GBK）编码，
+// 不能按 UTF-8 解码（原实现用 Utils::stringToWstring 错误地按 UTF-8 解码，
+// 非法 UTF-8 序列会解码失败返回空字符串）。
 static std::wstring convertFontNameToUTF16(const std::string& ansiName, BYTE charset) {
     if (charset == SHIFTJIS_CHARSET) {
         std::wstring result = convertCodePageToUTF16(ansiName, 932);
@@ -46,8 +88,8 @@ static std::wstring convertFontNameToUTF16(const std::string& ansiName, BYTE cha
             return result;
         }
     }
-    // 其他情况使用默认转换
-    return Utils::stringToWstring(ansiName);
+    // 其他情况按系统 ANSI 代码页解码
+    return Utils::ansiToWstring(ansiName);
 }
 
 // 初始化静态成员变量
@@ -84,10 +126,9 @@ static bool loadCustomFont(const std::wstring& fontFileName) {
         return false;
     }
     
-    // 获取游戏根目录
-    wchar_t gameDir[MAX_PATH];
-    GetCurrentDirectoryW(MAX_PATH, gameDir);
-    std::wstring fontPath = std::wstring(gameDir) + L"\\" + fontFileName;
+    // 获取游戏根目录：使用模块（EXE）所在目录而非当前工作目录，
+    // 与文件重定向的目录基准保持一致（DLL 注入场景下 CWD 可能与游戏目录不同）
+    const std::wstring fontPath = Utils::combinePaths(Utils::getModuleDirectory(), fontFileName);
     
     // 检查字体文件是否存在 (使用Windows API确保Windows 7兼容性)
     DWORD attrib = GetFileAttributesW(fontPath.c_str());
@@ -526,14 +567,16 @@ void FontHook::modifyFontParams(LOGFONTA* lf) {
     }
     
     if (config.localeCharset > 0) {
-        lf->lfCharSet = config.localeCharset;
+        lf->lfCharSet = charsetToByte(config.localeCharset);
     }
     
     // 优先使用自定义字体，如果不可用则保持原字体
     if (!config.fontName.empty()) {
         std::wstring customFaceName = config.fontName;
         if (isFontAvailable(customFaceName)) {
-            std::string fontNameA = Utils::wstringToANSI(customFaceName);
+            // 按目标字符集转换回 ANSI，确保日文引擎按 CP932 解码时字体名不乱码
+            const BYTE targetCharset = (config.localeCharset > 0) ? charsetToByte(config.localeCharset) : DEFAULT_CHARSET;
+            std::string fontNameA = wideToANSIWithCharset(customFaceName, targetCharset);
             strncpy_s(lf->lfFaceName, LF_FACESIZE, fontNameA.c_str(), _TRUNCATE);
             Logger::getInstance().log(L"使用自定义字体: " + customFaceName);
         } else {
@@ -563,7 +606,7 @@ void FontHook::modifyFontParams(LOGFONTW* lf) {
     }
     
     if (config.localeCharset > 0) {
-        lf->lfCharSet = config.localeCharset;
+        lf->lfCharSet = charsetToByte(config.localeCharset);
     }
     
     // 与LOGFONTA版本保持一致：自定义字体不可用时保持原字体
@@ -582,7 +625,16 @@ void FontHook::modifyFontParams(LOGFONTW* lf) {
                             L", Weight=" + std::to_wstring(lf->lfWeight));
 }
 
-// EnumFontFamiliesExA 钩子函数 - 重定向到 EnumFontFamiliesExW
+// EnumFontFamiliesExA 钩子函数
+//
+// 设计要点：仅当需要修改字符集过滤（config.localeCharset 与请求的
+// lfCharSet 不同）时才干预；否则【直接透传原始 API】。
+//
+// 原因：把 EnumFontFamiliesExA 转发到 W 版、再在回调中把宽字符字体名
+// 转回 ANSI（无论按哪个代码页），都会产生字节级转换，导致日文引擎在
+// 按 CP932 解码回调返回的字体名时出现 "! ) $ *" 一类乱码。
+// 直接透传 A 版时，系统生成的 LOGFONTA.lfFaceName 就是游戏期望的
+// ANSI 字节，回调不经任何转换，天然正确。
 int WINAPI FontHook::HookedEnumFontFamiliesExA(
     HDC hdc,
     LPLOGFONTA lpLogfont,
@@ -590,122 +642,30 @@ int WINAPI FontHook::HookedEnumFontFamiliesExA(
     LPARAM lParam,
     DWORD dwFlags
 ) {
-    const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFontHook) {
-        return originalEnumFontFamiliesExA(hdc, lpLogfont, lpProc, lParam, dwFlags);
-    }
-    
-    Logger::getInstance().log(L"EnumFontFamiliesExA 被调用");
-    
-    // 如果 lpLogfont 为 NULL，直接调用原始函数
     if (!lpLogfont) {
         return originalEnumFontFamiliesExA(hdc, lpLogfont, lpProc, lParam, dwFlags);
     }
-    
-    // 记录原始字体信息
-    std::string originalFaceName = lpLogfont->lfFaceName;
-    std::wstring originalFaceNameW;
-    
-    // 根据字符集正确转换字体名称
-    originalFaceNameW = convertFontNameToUTF16(originalFaceName, lpLogfont->lfCharSet);
-    
-    Logger::getInstance().log(L"原始字体枚举(A): " + originalFaceNameW + 
-                            L", Charset=" + Utils::intToHexString(lpLogfont->lfCharSet));
-    
-    // 创建修改后的 LOGFONTW 结构
-    LOGFONTW logfontW = {0};
-    logfontW.lfHeight = lpLogfont->lfHeight;
-    logfontW.lfWidth = lpLogfont->lfWidth;
-    logfontW.lfEscapement = lpLogfont->lfEscapement;
-    logfontW.lfOrientation = lpLogfont->lfOrientation;
-    logfontW.lfWeight = lpLogfont->lfWeight;
-    logfontW.lfItalic = lpLogfont->lfItalic;
-    logfontW.lfUnderline = lpLogfont->lfUnderline;
-    logfontW.lfStrikeOut = lpLogfont->lfStrikeOut;
-    logfontW.lfCharSet = lpLogfont->lfCharSet;
-    logfontW.lfOutPrecision = lpLogfont->lfOutPrecision;
-    logfontW.lfClipPrecision = lpLogfont->lfClipPrecision;
-    logfontW.lfQuality = lpLogfont->lfQuality;
-    logfontW.lfPitchAndFamily = lpLogfont->lfPitchAndFamily;
-    
-    // 设置字体名称 - 不修改字体名称，保持原始字体枚举
-    wcsncpy_s(logfontW.lfFaceName, LF_FACESIZE, originalFaceNameW.c_str(), _TRUNCATE);
-    
-    // 修改字符集
-    if (config.localeCharset > 0) {
-        logfontW.lfCharSet = config.localeCharset;
+
+    const HookConfig& config = ConfigManager::getInstance().getConfig();
+    const BYTE targetCharset = charsetToByte(config.localeCharset);
+
+    // 无需修改字符集过滤（禁用hook、未配置字符集、或目标==请求）：
+    // 完整透传，回调零转换
+    if (!config.enableFontHook || config.localeCharset <= 0 || lpLogfont->lfCharSet == targetCharset) {
+        return originalEnumFontFamiliesExA(hdc, lpLogfont, lpProc, lParam, dwFlags);
     }
-    
-    // 创建回调包装器，将宽字符字体信息转换为ANSI
-    struct CallbackWrapper {
-        FONTENUMPROCA originalProc;
-        LPARAM originalParam;
-        
-        static int CALLBACK EnumProcWrapper(const LOGFONTW* lplf, const TEXTMETRICW* lptm, DWORD dwType, LPARAM lParam) {
-            CallbackWrapper* wrapper = reinterpret_cast<CallbackWrapper*>(lParam);
-            
-            // 将 LOGFONTW 转换为 LOGFONTA
-            LOGFONTA logfontA = {0};
-            logfontA.lfHeight = lplf->lfHeight;
-            logfontA.lfWidth = lplf->lfWidth;
-            logfontA.lfEscapement = lplf->lfEscapement;
-            logfontA.lfOrientation = lplf->lfOrientation;
-            logfontA.lfWeight = lplf->lfWeight;
-            logfontA.lfItalic = lplf->lfItalic;
-            logfontA.lfUnderline = lplf->lfUnderline;
-            logfontA.lfStrikeOut = lplf->lfStrikeOut;
-            logfontA.lfCharSet = lplf->lfCharSet;
-            logfontA.lfOutPrecision = lplf->lfOutPrecision;
-            logfontA.lfClipPrecision = lplf->lfClipPrecision;
-            logfontA.lfQuality = lplf->lfQuality;
-            logfontA.lfPitchAndFamily = lplf->lfPitchAndFamily;
-            
-            // 转换字体名称
-            std::string faceNameA = Utils::wstringToANSI(lplf->lfFaceName);
-            strncpy_s(logfontA.lfFaceName, LF_FACESIZE, faceNameA.c_str(), _TRUNCATE);
-            
-            // TEXTMETRICW 参数在枚举TrueType字体时为NULL，必须做空指针检查
-            // 否则直接解引用会导致游戏崩溃
-            TEXTMETRICA textmetricA = {0};
-            TEXTMETRICA* pTextmetricA = nullptr;
-            if (lptm) {
-                textmetricA.tmHeight = lptm->tmHeight;
-                textmetricA.tmAscent = lptm->tmAscent;
-                textmetricA.tmDescent = lptm->tmDescent;
-                textmetricA.tmInternalLeading = lptm->tmInternalLeading;
-                textmetricA.tmExternalLeading = lptm->tmExternalLeading;
-                textmetricA.tmAveCharWidth = lptm->tmAveCharWidth;
-                textmetricA.tmMaxCharWidth = lptm->tmMaxCharWidth;
-                textmetricA.tmWeight = lptm->tmWeight;
-                textmetricA.tmOverhang = lptm->tmOverhang;
-                textmetricA.tmDigitizedAspectX = lptm->tmDigitizedAspectX;
-                textmetricA.tmDigitizedAspectY = lptm->tmDigitizedAspectY;
-                textmetricA.tmFirstChar = static_cast<BYTE>(lptm->tmFirstChar);
-                textmetricA.tmLastChar = static_cast<BYTE>(lptm->tmLastChar);
-                textmetricA.tmDefaultChar = static_cast<BYTE>(lptm->tmDefaultChar);
-                textmetricA.tmBreakChar = static_cast<BYTE>(lptm->tmBreakChar);
-                textmetricA.tmItalic = lptm->tmItalic;
-                textmetricA.tmUnderlined = lptm->tmUnderlined;
-                textmetricA.tmStruckOut = lptm->tmStruckOut;
-                textmetricA.tmPitchAndFamily = lptm->tmPitchAndFamily;
-                textmetricA.tmCharSet = lptm->tmCharSet;
-                pTextmetricA = &textmetricA;
-            }
-            
-            return wrapper->originalProc(&logfontA, pTextmetricA, dwType, wrapper->originalParam);
-        }
-    };
-    
-    CallbackWrapper wrapper = {lpProc, lParam};
-    
-    // 调用宽字符版本
-    int result = originalEnumFontFamiliesExW(hdc, &logfontW, CallbackWrapper::EnumProcWrapper, reinterpret_cast<LPARAM>(&wrapper), dwFlags);
-    
-    Logger::getInstance().log(L"EnumFontFamiliesExA 完成，结果=" + std::to_wstring(result));
-    return result;
+
+    // 需要修改字符集过滤：就地复制 LOGFONTA 并调整 lfCharSet 后调用
+    // 原始 A 版，回调原样透传（系统生成的 ANSI 字体名无需转换）
+    LOGFONTA modifiedLf = *lpLogfont;
+    modifiedLf.lfCharSet = targetCharset;
+    Logger::getInstance().log(L"EnumFontFamiliesExA: 字符集过滤 " +
+        Utils::intToHexString(lpLogfont->lfCharSet) + L" -> " + Utils::intToHexString(targetCharset));
+    return originalEnumFontFamiliesExA(hdc, &modifiedLf, lpProc, lParam, dwFlags);
 }
 
 // EnumFontFamiliesExW 钩子函数
+// 与 A 版同理：字符集无需修改时透传原始 W 版，回调零转换
 int WINAPI FontHook::HookedEnumFontFamiliesExW(
     HDC hdc,
     LPLOGFONTW lpLogfont,
@@ -713,58 +673,22 @@ int WINAPI FontHook::HookedEnumFontFamiliesExW(
     LPARAM lParam,
     DWORD dwFlags
 ) {
-    const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableFontHook) {
-        return originalEnumFontFamiliesExW(hdc, lpLogfont, lpProc, lParam, dwFlags);
-    }
-    
-    Logger::getInstance().log(L"EnumFontFamiliesExW 被调用");
-    
-    // 如果 lpLogfont 为 NULL，直接调用原始函数
     if (!lpLogfont) {
         return originalEnumFontFamiliesExW(hdc, lpLogfont, lpProc, lParam, dwFlags);
     }
-    
-    // 记录原始字体信息
-    std::wstring originalFaceName = lpLogfont->lfFaceName;
-    Logger::getInstance().log(L"原始字体枚举(W): " + originalFaceName + 
-                            L", 字符集=" + Utils::intToHexString(lpLogfont->lfCharSet));
-    
-    // 创建修改后的 LOGFONTW 结构
-    LOGFONTW modifiedLogfont = *lpLogfont;
-    
-    // 修改字体参数 - 不修改字体名称，保持原始字体枚举
-    // 字体名称保持不变，避免影响游戏正常的字体枚举功能
-    
-    if (config.localeCharset > 0) {
-        modifiedLogfont.lfCharSet = config.localeCharset;
+
+    const HookConfig& config = ConfigManager::getInstance().getConfig();
+    const BYTE targetCharset = charsetToByte(config.localeCharset);
+
+    // 无需修改字符集过滤：完整透传
+    if (!config.enableFontHook || config.localeCharset <= 0 || lpLogfont->lfCharSet == targetCharset) {
+        return originalEnumFontFamiliesExW(hdc, lpLogfont, lpProc, lParam, dwFlags);
     }
-    
-    // 创建回调包装器，仅应用字符集过滤，不修改字体名称
-    struct CallbackWrapperW {
-        FONTENUMPROCW originalProc;
-        LPARAM originalParam;
-        
-        static int CALLBACK EnumProcWrapper(const LOGFONTW* lplf, const TEXTMETRICW* lptm, DWORD dwType, LPARAM lParam) {
-            CallbackWrapperW* wrapper = reinterpret_cast<CallbackWrapperW*>(lParam);
-            
-            // 仅修改字符集，保持字体名称不变
-            LOGFONTW modifiedLf = *lplf;
-            const HookConfig& config = ConfigManager::getInstance().getConfig();
-            
-            if (config.localeCharset > 0) {
-                modifiedLf.lfCharSet = config.localeCharset;
-            }
-            
-            return wrapper->originalProc(&modifiedLf, lptm, dwType, wrapper->originalParam);
-        }
-    };
-    
-    CallbackWrapperW wrapper = {lpProc, lParam};
-    
-    // 调用原始函数
-    int result = originalEnumFontFamiliesExW(hdc, &modifiedLogfont, CallbackWrapperW::EnumProcWrapper, reinterpret_cast<LPARAM>(&wrapper), dwFlags);
-    
-    Logger::getInstance().log(L"EnumFontFamiliesExW 完成，结果=" + std::to_wstring(result));
-    return result;
+
+    // 需要修改字符集过滤：复制 LOGFONTW 调整 lfCharSet，回调原样透传
+    LOGFONTW modifiedLf = *lpLogfont;
+    modifiedLf.lfCharSet = targetCharset;
+    Logger::getInstance().log(L"EnumFontFamiliesExW: 字符集过滤 " +
+        Utils::intToHexString(lpLogfont->lfCharSet) + L" -> " + Utils::intToHexString(targetCharset));
+    return originalEnumFontFamiliesExW(hdc, &modifiedLf, lpProc, lParam, dwFlags);
 }

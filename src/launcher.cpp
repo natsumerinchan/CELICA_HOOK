@@ -20,9 +20,17 @@ bool injectDllToProcess(DWORD processId, const std::wstring& dllPath);
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR lpCmdLine, int nCmdShow)
 {
-    // 初始化配置
+    // WinMain 固定签名参数无需使用，消除 C4100 未引用参数告警
+    (void)hInstance;
+    (void)hPrevInstance;
+    (void)lpCmdLine;
+    (void)nCmdShow;
+    
+    // 初始化配置：配置文件与启动器 EXE 同目录。
+    // 通过快捷方式（设置了"起始位置"）启动时 CWD 可能与 EXE 目录不一致，
+    // 因此基于模块目录构建绝对路径
     ConfigManager& configManager = ConfigManager::getInstance();
-    std::wstring configFile = L"celica_hook.ini";
+    std::wstring configFile = Utils::combinePaths(Utils::getModuleDirectory(), L"celica_hook.ini");
     
     if (!configManager.loadConfig(configFile)) {
         MessageBoxW(NULL, L"配置文件加载失败，请确保celica_hook.ini存在", L"错误", MB_ICONERROR);
@@ -219,8 +227,11 @@ DWORD findProcessByPath(const std::wstring& processPath) {
 
 // 注入DLL到指定进程
 bool injectDllToProcess(DWORD processId, const std::wstring& dllPath) {
-    // 打开目标进程
-    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
+    // 打开目标进程：仅申请注入所需的最低权限，避免因权限请求过多被拒绝
+    // 或触发安全软件的过度告警（PROCESS_ALL_ACCESS 会请求所有权限位）
+    HANDLE hProcess = OpenProcess(
+        PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ | PROCESS_QUERY_INFORMATION,
+        FALSE, processId);
     if (!hProcess) {
         std::wcout << L"无法打开目标进程，错误代码: " << GetLastError() << std::endl;
         return false;
@@ -263,8 +274,26 @@ bool injectDllToProcess(DWORD processId, const std::wstring& dllPath) {
         return false;
     }
 
-    // 等待线程完成
-    WaitForSingleObject(hThread, INFINITE);
+    // 等待线程完成（LoadLibraryW 通常很快；超时后按失败处理并清理，
+    // 避免目标进程卡死时启动器无限阻塞）
+    if (WaitForSingleObject(hThread, 10000) != WAIT_OBJECT_0) {
+        std::wcout << L"等待LoadLibrary执行超时" << std::endl;
+        CloseHandle(hThread);
+        VirtualFreeEx(hProcess, pRemoteMemory, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    // 检查远程 LoadLibraryW 的返回值：如果为 NULL，说明远程加载失败
+    DWORD exitCode = 0;
+    BOOL gotExitCode = GetExitCodeThread(hThread, &exitCode);
+    if (!gotExitCode || exitCode == 0) {
+        std::wcout << L"目标进程内加载DLL失败，错误代码: " << GetLastError() << std::endl;
+        CloseHandle(hThread);
+        VirtualFreeEx(hProcess, pRemoteMemory, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return false;
+    }
 
     // 清理资源
     CloseHandle(hThread);

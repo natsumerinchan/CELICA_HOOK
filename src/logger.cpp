@@ -48,6 +48,12 @@ void Logger::writeBOM() {
 void Logger::log(const std::string& message) {
     if (!m_initialized) return;
     
+    if (m_useDebugOutput) {
+        // 调试输出模式下 m_logFile 未打开，不能写入文件流
+        OutputDebugStringA((Utils::wstringToString(getCurrentTime()) + " " + message + "\n").c_str());
+        return;
+    }
+    
     std::string timestamp = Utils::wstringToString(getCurrentTime());
     m_logFile << "[" << timestamp << "] " << message << std::endl;
     m_logFile.flush();
@@ -87,8 +93,12 @@ std::wstring Logger::getCurrentTime() {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         now.time_since_epoch()) % 1000;
     
+    // 使用线程安全的 localtime_s 替代 std::localtime（后者使用全局静态缓冲区，多线程下存在数据竞争）
+    struct tm localTime {};
+    localtime_s(&localTime, &time_t);
+    
     std::wstringstream ss;
-    ss << std::put_time(std::localtime(&time_t), L"%Y-%m-%d %H:%M:%S");
+    ss << std::put_time(&localTime, L"%Y-%m-%d %H:%M:%S");
     ss << L"." << std::setfill(L'0') << std::setw(3) << ms.count();
     
     return ss.str();

@@ -35,7 +35,7 @@ struct HookConfig {
     bool enableWindowTitleHook = false;
     
     // 文件重定向配置
-    bool enableExtensionCheck = true;
+    bool enableExtensionCheck = false;
     std::wstring redirectFolder = L"CHSFiles";
     std::wstring redirectExtensions = L".txt";
     
@@ -54,9 +54,9 @@ struct HookConfig {
     
     // 字体hook细粒度控制
     bool enableCreateFontA = true;           // HookedCreateFontA开关
-    bool enableCreateFontW = true;           // HookedCreateFontW开关
+    bool enableCreateFontW = false;          // HookedCreateFontW开关
     bool enableCreateFontIndirectA = true;   // HookedCreateFontIndirectA开关
-    bool enableCreateFontIndirectW = true;   // HookedCreateFontIndirectW开关
+    bool enableCreateFontIndirectW = false;  // HookedCreateFontIndirectW开关
     
     // 窗口标题配置
     bool enableTitleCheck = true;        // 是否启用标题检查
@@ -70,7 +70,7 @@ struct HookConfig {
     std::wstring timezone = L"Tokyo Standard Time"; // 时区 (默认东京时区)
     
     // 日志配置
-    bool enableLogging = true;
+    bool enableLogging = false;
     std::wstring logFile = L"celica_hook.log";
     
     // 注入器配置

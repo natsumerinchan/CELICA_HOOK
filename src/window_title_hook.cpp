@@ -2,6 +2,11 @@
 #include "detours.h"
 #include <algorithm>
 #include <cwctype>
+#include <vector>
+
+// 静态成员定义
+HANDLE WindowTitleHook::m_reapplyThread = nullptr;
+HANDLE WindowTitleHook::m_reapplyEvent = nullptr;
 
 // 定义原始函数指针
 HWND (WINAPI* WindowTitleHook::OriginalCreateWindowExW)(
@@ -57,16 +62,34 @@ bool WindowTitleHook::initialize() {
     Logger::getInstance().log(L"开始初始化窗口标题hook");
     
     // Hook CreateWindowExW
-    DetourAttach(&(PVOID&)OriginalCreateWindowExW, HookedCreateWindowExW);
+    if (DetourAttach(&(PVOID&)OriginalCreateWindowExW, HookedCreateWindowExW) != NO_ERROR) {
+        Logger::getInstance().log(L"Hook CreateWindowExW 失败");
+        return false;
+    }
     
     // Hook CreateWindowExA
-    DetourAttach(&(PVOID&)OriginalCreateWindowExA, HookedCreateWindowExA);
+    if (DetourAttach(&(PVOID&)OriginalCreateWindowExA, HookedCreateWindowExA) != NO_ERROR) {
+        Logger::getInstance().log(L"Hook CreateWindowExA 失败");
+        DetourDetach(&(PVOID&)OriginalCreateWindowExW, HookedCreateWindowExW);
+        return false;
+    }
     
     // Hook SetWindowTextW
-    DetourAttach(&(PVOID&)OriginalSetWindowTextW, HookedSetWindowTextW);
+    if (DetourAttach(&(PVOID&)OriginalSetWindowTextW, HookedSetWindowTextW) != NO_ERROR) {
+        Logger::getInstance().log(L"Hook SetWindowTextW 失败");
+        DetourDetach(&(PVOID&)OriginalCreateWindowExW, HookedCreateWindowExW);
+        DetourDetach(&(PVOID&)OriginalCreateWindowExA, HookedCreateWindowExA);
+        return false;
+    }
     
     // Hook SetWindowTextA
-    DetourAttach(&(PVOID&)OriginalSetWindowTextA, HookedSetWindowTextA);
+    if (DetourAttach(&(PVOID&)OriginalSetWindowTextA, HookedSetWindowTextA) != NO_ERROR) {
+        Logger::getInstance().log(L"Hook SetWindowTextA 失败");
+        DetourDetach(&(PVOID&)OriginalCreateWindowExW, HookedCreateWindowExW);
+        DetourDetach(&(PVOID&)OriginalCreateWindowExA, HookedCreateWindowExA);
+        DetourDetach(&(PVOID&)OriginalSetWindowTextW, HookedSetWindowTextW);
+        return false;
+    }
     
     m_initialized = true;
     Logger::getInstance().log(L"窗口标题hook初始化完成");
@@ -85,6 +108,21 @@ void WindowTitleHook::shutdown() {
     }
     
     Logger::getInstance().log(L"开始卸载窗口标题hook");
+    
+    // 通知后台重应用线程退出，并等待其结束，
+    // 避免 DLL 卸载期间该线程仍在调用 Logger 等进程代码导致崩溃
+    if (m_reapplyEvent != nullptr) {
+        SetEvent(m_reapplyEvent);
+    }
+    if (m_reapplyThread != nullptr) {
+        WaitForSingleObject(m_reapplyThread, 5000);
+        CloseHandle(m_reapplyThread);
+        m_reapplyThread = nullptr;
+    }
+    if (m_reapplyEvent != nullptr) {
+        CloseHandle(m_reapplyEvent);
+        m_reapplyEvent = nullptr;
+    }
     
     // 卸载hook
     DetourDetach(&(PVOID&)OriginalCreateWindowExW, HookedCreateWindowExW);
@@ -199,13 +237,11 @@ HWND WINAPI WindowTitleHook::HookedCreateWindowExA(
                     int ansiLen = WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, nullptr, 0, nullptr, nullptr);
                     if (ansiLen > 0) {
                         // 修复3：确保ANSI字符串正确终止
+                        // 局部变量即可：本函数是同步阻塞的，缓冲区生命周期覆盖Original调用全程，
+                        // 且避免了static局部变量的跨线程竞争
                         std::vector<char> ansiBuffer(ansiLen);
                         WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, ansiBuffer.data(), ansiLen, nullptr, nullptr);
-                        
-                        // 使用静态字符串避免生命周期问题
-                        static std::string ansiTitle;
-                        ansiTitle.assign(ansiBuffer.data());
-                        processedWindowName = ansiTitle.c_str();
+                        processedWindowName = ansiBuffer.data();
                     }
                 }
             }
@@ -240,9 +276,8 @@ BOOL WINAPI WindowTitleHook::HookedSetWindowTextA(HWND hWnd, LPCSTR lpString) {
                         std::vector<char> ansiBuffer(ansiLen);
                         WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, ansiBuffer.data(), ansiLen, nullptr, nullptr);
                         
-                        static std::string ansiTitle;
-                        ansiTitle.assign(ansiBuffer.data());
-                        processedString = ansiTitle.c_str();
+                        // 局部变量即可，同步调用期间生命周期足够
+                        processedString = ansiBuffer.data();
                     }
                 }
             }
@@ -253,55 +288,29 @@ BOOL WINAPI WindowTitleHook::HookedSetWindowTextA(HWND hWnd, LPCSTR lpString) {
 }
 
 std::wstring WindowTitleHook::processWindowTitle(const std::wstring& originalTitle) {
-    // 如果标题检查被禁用，直接返回原标题
+    // 空标题无需处理
+    if (originalTitle.empty()) {
+        return originalTitle;
+    }
+
     const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableWindowTitleHook) {
-        // Logger::getInstance().log(L"窗口标题hook已禁用，返回原标题: " + originalTitle);
+    if (!config.enableWindowTitleHook || config.newWindowTitle.empty()) {
         return originalTitle;
     }
     
     Logger::getInstance().log(L"处理窗口标题: " + originalTitle);
     Logger::getInstance().log(L"配置 - 原标题: " + config.originalWindowTitle);
-    // Logger::getInstance().log(L"配置 - 新标题: " + config.newWindowTitle);
     Logger::getInstance().log(L"配置 - 启用标题检查: " + std::wstring(config.enableTitleCheck ? L"是" : L"否"));
-    
-    // 如果不需要检查标题，直接返回原标题
-    if (!shouldCheckTitle(originalTitle)) {
-        // Logger::getInstance().log(L"跳过标题检查，返回原标题: " + originalTitle);
+
+    // 启用标题检查：仅当原标题匹配（配置的原标题为空=匹配所有）时才替换
+    // 禁用标题检查：无条件替换为配置的新标题（对应README中"危险操作：直接修改所有标题"）
+    if (config.enableTitleCheck && !isTitleMatch(originalTitle, config.originalWindowTitle)) {
+        Logger::getInstance().log(L"标题不匹配，返回原标题: " + originalTitle);
         return originalTitle;
     }
-    
-    // 检查原标题是否与配置中的预期标题匹配
-    if (isTitleMatch(originalTitle, config.originalWindowTitle)) {
-        // 如果匹配，检查新标题是否为空
-        if (!config.newWindowTitle.empty()) {
-            Logger::getInstance().log(L"标题匹配成功，修改为: " + config.newWindowTitle);
-            return config.newWindowTitle;
-        }
-        Logger::getInstance().log(L"标题匹配成功但新标题为空，返回原标题: " + originalTitle);
-    }
-    
-    // 如果不匹配，返回原标题
-    Logger::getInstance().log(L"标题不匹配，返回原标题: " + originalTitle);
-    return originalTitle;
-}
 
-bool WindowTitleHook::shouldCheckTitle(const std::wstring& originalTitle) {
-    // 空标题不需要检查
-    if (originalTitle.empty()) {
-        return false;
-    }
-    
-    // 如果禁用标题检查，直接返回false
-    const HookConfig& config = ConfigManager::getInstance().getConfig();
-    if (!config.enableTitleCheck) {
-        return false;
-    }
-    
-    // 这里可以添加其他逻辑来决定是否需要检查标题
-    // 例如：只检查特定窗口类的标题等
-    
-    return true;
+    Logger::getInstance().log(L"标题匹配通过，修改为: " + config.newWindowTitle);
+    return config.newWindowTitle;
 }
 
 bool WindowTitleHook::isTitleMatch(const std::wstring& originalTitle, const std::wstring& expectedTitle) {
@@ -320,18 +329,24 @@ bool WindowTitleHook::isTitleMatch(const std::wstring& originalTitle, const std:
     return originalLower == expectedLower;
 }
 void WindowTitleHook::reapplyExistingWindowTitles() {
+    if (m_reapplyThread != nullptr) {
+        return;
+    }
+    
+    // 创建退出事件（shutdown 时用于通知线程尽快结束）
+    if (m_reapplyEvent == nullptr) {
+        m_reapplyEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    }
+    
     // 在后台线程执行标题重新应用，避免在DllMain（持有加载器锁）期间
     // 跨线程向游戏主线程发送窗口消息导致死锁
-    HANDLE hThread = CreateThread(NULL, 0, reapplyThreadProc, NULL, 0, NULL);
-    if (hThread != NULL) {
-        CloseHandle(hThread);
-    }
+    m_reapplyThread = CreateThread(nullptr, 0, reapplyThreadProc, nullptr, 0, nullptr);
 }
 
 // 后台线程：等待DllMain返回（加载器锁释放）且游戏完成初始加载后，
 // 枚举已有窗口并重新应用标题修改；窗口稍晚创建时通过多次重试覆盖。
 DWORD WINAPI WindowTitleHook::reapplyThreadProc(LPVOID lpParam) {
-
+    (void)lpParam;  // 参数保留以匹配线程函数签名
     Logger::getInstance().log(L"开始对已有窗口重新应用标题修改");
 
     // 多次重试，覆盖游戏窗口稍晚才创建的情况
@@ -339,7 +354,10 @@ DWORD WINAPI WindowTitleHook::reapplyThreadProc(LPVOID lpParam) {
         if (applyTitlesToExistingWindows()) {
             break;
         }
-        Sleep(500);
+        // 每轮之间检查退出事件，DLL 卸载时能尽快结束线程
+        if (m_reapplyEvent != nullptr && WaitForSingleObject(m_reapplyEvent, 500) == WAIT_OBJECT_0) {
+            break;
+        }
     }
 
     Logger::getInstance().log(L"已有窗口标题重新应用完成");
@@ -382,7 +400,7 @@ bool WindowTitleHook::applyTitlesToExistingWindows() {
             // 检查新标题能否在当前ANSI代码页下无损表示；不能则跳过，
             // 避免在转区（如日文CP932）下把中文标题设置成"??????"
             int aLen = WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, nullptr, 0, nullptr, nullptr);
-            std::string ansiTitle(aLen > 0 ? aLen : 1, L"\0"[0]);
+            std::string ansiTitle(aLen > 0 ? aLen : 1, '\0');
             if (aLen > 0) { WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, &ansiTitle[0], aLen, nullptr, nullptr); }
             int wLen = MultiByteToWideChar(CP_ACP, 0, ansiTitle.c_str(), -1, nullptr, 0);
             std::wstring roundTrip(wLen > 0 ? wLen : 1, L"\0"[0]);

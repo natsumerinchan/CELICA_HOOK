@@ -16,7 +16,10 @@ struct GlobalInitializer {
     GlobalInitializer() {
         // 初始化配置
         ConfigManager& configManager = ConfigManager::getInstance();
-        std::wstring configFile = L"celica_hook.ini";
+        
+        // 配置文件与游戏 EXE 同目录（DLL 是注入到游戏进程的，CWD 可能与游戏目录不一致，
+        // 因此基于模块目录构建绝对路径，避免依赖当前工作目录）
+        std::wstring configFile = Utils::combinePaths(Utils::getModuleDirectory(), L"celica_hook.ini");
         
         // 先加载一次配置，主要是为了决定是否启用日志
         configManager.loadConfig(configFile);
@@ -38,6 +41,7 @@ GlobalInitializer g_initializer;
 
 // DLL入口点
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
+    (void)lpReserved;  // 保留参数以匹配 DllMain 签名，消除 C4100
     switch (dwReason) {
         case DLL_PROCESS_ATTACH: {
             DisableThreadLibraryCalls(hModule);

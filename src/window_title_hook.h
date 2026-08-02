@@ -88,7 +88,6 @@ private:
     
     // 标题处理函数
     static std::wstring processWindowTitle(const std::wstring& originalTitle);
-    static bool shouldCheckTitle(const std::wstring& originalTitle);
     static bool isTitleMatch(const std::wstring& originalTitle, const std::wstring& expectedTitle);
     
     // 对当前进程中已经存在的窗口重新应用标题修改
@@ -103,6 +102,11 @@ private:
     static bool applyTitlesToExistingWindows();
     
     bool m_initialized = false;
+
+    // 后台重应用线程及其退出事件（shutdown 时需等待其退出，避免 DLL 卸载期间
+    // 线程仍在调用 Logger/进程代码导致崩溃）
+    static HANDLE m_reapplyThread;
+    static HANDLE m_reapplyEvent;
 };
 
 #endif // WINDOW_TITLE_HOOK_H

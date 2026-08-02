@@ -305,7 +305,7 @@ bool LocaleEmulatorPlus::createProcessWithLocale(const std::wstring& application
         PROCESS_INFORMATION pi = { 0 };
         si.cb = sizeof(si);
         
-        return CreateProcessW(
+        const BOOL created = CreateProcessW(
             applicationPath.c_str(),
             NULL,
             NULL,
@@ -317,6 +317,14 @@ bool LocaleEmulatorPlus::createProcessWithLocale(const std::wstring& application
             &si,
             &pi
         );
+        
+        // 关闭进程/线程句柄，避免句柄泄漏
+        if (created) {
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+        }
+        
+        return created;
     }
     
     // 基于LEP LoaderDll的实现

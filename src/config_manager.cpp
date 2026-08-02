@@ -15,7 +15,9 @@ ConfigManager& ConfigManager::getInstance() {
 }
 
 // 安全的字符串转换函数
-int safeStoi(const std::wstring& str, int defaultValue = 0) {
+// 注意：必须声明为 static/内部链接，避免该自由函数泄漏到全局命名空间，
+// 与其他翻译单元（或第三方库）的同名函数产生 ODR 冲突
+static int safeStoi(const std::wstring& str, int defaultValue = 0) {
     try {
         return std::stoi(str);
     } catch (...) {
