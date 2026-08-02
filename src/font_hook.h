@@ -14,6 +14,9 @@ public:
     bool initialize();
     void shutdown();
     
+    // 获取原始EnumFontFamiliesExW函数指针（供isFontAvailable等内部检测使用，绕过hook）
+    static decltype(EnumFontFamiliesExW)* getRawEnumFontFamiliesExW();
+    
     // Hook函数声明
     static HFONT WINAPI HookedCreateFontA(
         int nHeight,
@@ -83,6 +86,15 @@ private:
     static decltype(CreateFontIndirectW)* originalCreateFontIndirectW;
     static decltype(EnumFontFamiliesExA)* originalEnumFontFamiliesExA;
     static decltype(EnumFontFamiliesExW)* originalEnumFontFamiliesExW;
+    
+    // hook安装标志：区分"有效原始地址"与"已实际attach"，
+    // 避免shutdown对未attach的指针执行无效DetourDetach
+    static bool m_createFontAHooked;
+    static bool m_createFontWHooked;
+    static bool m_createFontIndirectAHooked;
+    static bool m_createFontIndirectWHooked;
+    static bool m_enumFontFamiliesExAHooked;
+    static bool m_enumFontFamiliesExWHooked;
 };
 
 #endif // FONT_HOOK_H
