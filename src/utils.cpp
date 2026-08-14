@@ -54,11 +54,27 @@ std::string Utils::wstringToANSI(const std::wstring& wstr) {
     return str;
 }
 
+std::wstring Utils::getModuleFilePath() {
+    // 用循环增长的缓冲区获取完整模块路径，避免 MAX_PATH 截断长路径
+    DWORD size = MAX_PATH;
+    std::wstring buffer;
+    for (;;) {
+        buffer.resize(size);
+        DWORD len = GetModuleFileNameW(NULL, &buffer[0], size);
+        if (len == 0) {
+            return L"";
+        }
+        if (len < size) {
+            buffer.resize(len);
+            return buffer;
+        }
+        // 缓冲区不足：翻倍重试
+        size *= 2;
+    }
+}
+
 std::wstring Utils::getModuleDirectory() {
-    wchar_t buffer[MAX_PATH];
-    GetModuleFileNameW(NULL, buffer, MAX_PATH);
-    
-    std::wstring path(buffer);
+    std::wstring path = getModuleFilePath();
     size_t pos = path.find_last_of(L"\\/");
     if (pos != std::wstring::npos) {
         return path.substr(0, pos);
@@ -112,15 +128,20 @@ std::wstring Utils::combinePaths(const std::wstring& path1, const std::wstring& 
 int Utils::hexStringToInt(const std::wstring& hexStr) {
     std::wstring str = hexStr;
     
-    // 移除0x前缀
-    if (str.length() > 2 && str.substr(0, 2) == L"0x") {
+    // 移除0x前缀（大小写均可）
+    if (str.length() > 2 && (str.substr(0, 2) == L"0x" || str.substr(0, 2) == L"0X")) {
         str = str.substr(2);
     }
     
-    int value;
+    if (str.empty()) return 0;
+    
+    // 修复：value 必须初始化，且解析失败（如 "zz"）时返回 0，避免未初始化变量 UB
+    int value = 0;
     std::wstringstream ss;
     ss << std::hex << str;
-    ss >> value;
+    if (!(ss >> value)) {
+        return 0;
+    }
     
     return value;
 }
@@ -134,16 +155,67 @@ std::wstring Utils::intToHexString(int value) {
 // 安全验证函数实现
 
 std::wstring Utils::normalizePath(const std::wstring& path) {
-    std::wstring normalized = path;
-    std::replace(normalized.begin(), normalized.end(), L'/', L'\\');
-    
-    // 移除路径遍历攻击
-    size_t pos;
-    while ((pos = normalized.find(L"..\\")) != std::wstring::npos) {
-        normalized.erase(pos, 3);
+    // 纯词法路径归一化（不访问文件系统）：
+    // 1. 统一分隔符为反斜杠
+    // 2. 折叠连续分隔符
+    // 3. 忽略 "." 段
+    // 4. 解析 ".." 段（弹出上一级；相对路径不越过根，防止路径遍历）
+    // 5. 保留盘符/UNC 前缀
+    //
+    // 修复原实现直接删除 "..\" 子串的问题：既无法真正归一化，
+    // 又会破坏形如 "v1..2\file.txt" 的合法文件名。
+    std::wstring p = path;
+    std::replace(p.begin(), p.end(), L'/', L'\\');
+
+    std::wstring prefix;
+    size_t i = 0;
+
+    if (p.size() >= 2 && p[1] == L':' &&
+        ((p[0] >= L'A' && p[0] <= L'Z') || (p[0] >= L'a' && p[0] <= L'z'))) {
+        // 盘符，如 "C:"
+        prefix = p.substr(0, 2);
+        i = 2;
+    } else if (p.size() >= 2 && p[0] == L'\\' && p[1] == L'\\') {
+        // UNC 前缀，如 \\server\share
+        size_t third = p.find(L'\\', 2);
+        if (third != std::wstring::npos) {
+            size_t fourth = p.find(L'\\', third + 1);
+            prefix = p.substr(0, (fourth == std::wstring::npos) ? p.size() : fourth);
+            i = prefix.size();
+        } else {
+            prefix = p;
+            i = p.size();
+        }
     }
-    
-    return normalized;
+
+    std::vector<std::wstring> parts;
+    while (i < p.size()) {
+        size_t next = p.find(L'\\', i);
+        std::wstring seg = (next == std::wstring::npos) ? p.substr(i) : p.substr(i, next - i);
+
+        if (seg.empty() || seg == L".") {
+            // 空段（连续分隔符）或当前目录段：忽略
+        } else if (seg == L"..") {
+            if (!parts.empty()) {
+                parts.pop_back();
+            }
+            // 相对路径在根处遇到 ".."：直接丢弃（不越过根）
+        } else {
+            parts.push_back(seg);
+        }
+
+        if (next == std::wstring::npos) break;
+        i = next + 1;
+    }
+
+    std::wstring result = prefix;
+    for (const auto& seg : parts) {
+        if (!result.empty() && result.back() != L'\\') {
+            result += L'\\';
+        }
+        result += seg;
+    }
+    return result;
 }
 
 bool Utils::isValidExtension(const std::wstring& filename, const std::wstring& allowedExtensions) {
@@ -262,4 +334,44 @@ std::wstring Utils::toLower(const std::wstring& str) {
         ch = towlower(ch);
     }
     return lower;
+}
+
+bool Utils::isAbsolutePath(const std::wstring& path) {
+    if (path.empty()) return false;
+    // UNC / 以根为基准的路径
+    if (path[0] == L'\\') return true;
+    // 盘符路径，如 C:\...
+    if (path.size() >= 2 && path[1] == L':') return true;
+    return false;
+}
+
+std::wstring Utils::getFullPath(const std::wstring& path) {
+    // GetFullPathNameW 会解析相对段与 ".."，返回规范化的绝对路径；
+    // 失败时原样返回，由调用方决定后续处理
+    if (path.empty()) return L"";
+
+    DWORD size = GetFullPathNameW(path.c_str(), 0, nullptr, nullptr);
+    if (size == 0) return path;
+
+    std::wstring buffer(size, L'\0');
+    DWORD len = GetFullPathNameW(path.c_str(), size, &buffer[0], nullptr);
+    if (len == 0 || len >= size) {
+        // 罕见：路径在计算期间变化导致缓冲区不足，用大缓冲重试一次
+        size = 32768;
+        buffer.assign(size, L'\0');
+        len = GetFullPathNameW(path.c_str(), size, &buffer[0], nullptr);
+        if (len == 0 || len >= size) {
+            return path;
+        }
+    }
+    buffer.resize(len);
+    return buffer;
+}
+
+std::wstring Utils::resolveTargetPath(const std::wstring& targetPath) {
+    if (targetPath.empty()) return L"";
+    std::wstring combined = isAbsolutePath(targetPath)
+        ? targetPath
+        : combinePaths(getModuleDirectory(), targetPath);
+    return getFullPath(combined);
 }

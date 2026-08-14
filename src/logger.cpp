@@ -10,14 +10,19 @@ Logger& Logger::getInstance() {
 }
 
 Logger::Logger() : m_initialized(false) {
+    InitializeCriticalSection(&m_lock);
 }
 
 Logger::~Logger() {
     close();
+    DeleteCriticalSection(&m_lock);
 }
 
 bool Logger::initialize(const std::wstring& logFile) {
+    EnterCriticalSection(&m_lock);
+
     if (m_initialized) {
+        LeaveCriticalSection(&m_lock);
         return true;
     }
     
@@ -28,6 +33,7 @@ bool Logger::initialize(const std::wstring& logFile) {
         OutputDebugStringW(L"日志文件打开失败，使用调试输出\n");
         m_useDebugOutput = true;
         m_initialized = true;
+        LeaveCriticalSection(&m_lock);
         return true;
     }
     
@@ -35,6 +41,8 @@ bool Logger::initialize(const std::wstring& logFile) {
     m_initialized = true;
     m_useDebugOutput = false;
     
+    LeaveCriticalSection(&m_lock);
+
     log(L"日志系统初始化完成");
     return true;
 }
@@ -45,37 +53,46 @@ void Logger::writeBOM() {
     m_logFile.write(reinterpret_cast<char*>(bom), sizeof(bom));
 }
 
-void Logger::log(const std::string& message) {
-    if (!m_initialized) return;
-    
-    if (m_useDebugOutput) {
-        // 调试输出模式下 m_logFile 未打开，不能写入文件流
-        OutputDebugStringA((Utils::wstringToString(getCurrentTime()) + " " + message + "\n").c_str());
+void Logger::log(const std::wstring& message) {
+    EnterCriticalSection(&m_lock);
+
+    if (!m_initialized) {
+        LeaveCriticalSection(&m_lock);
         return;
     }
     
-    std::string timestamp = Utils::wstringToString(getCurrentTime());
-    m_logFile << "[" << timestamp << "] " << message << std::endl;
-    m_logFile.flush();
-}
-
-void Logger::log(const std::wstring& message) {
-    if (!m_initialized) return;
-    
     if (m_useDebugOutput) {
+        // 调试输出模式下 m_logFile 未打开，不能写入文件流
         OutputDebugStringW((getCurrentTime() + L" " + message + L"\n").c_str());
-    } else {
-        std::string utf8Message = wstringToUTF8(message);
-        log(utf8Message);
+        LeaveCriticalSection(&m_lock);
+        return;
     }
+    
+    std::string timestamp = wstringToUTF8(getCurrentTime());
+    std::string utf8Message = wstringToUTF8(message);
+    m_logFile << "[" << timestamp << "] " << utf8Message << std::endl;
+    m_logFile.flush();
+
+    LeaveCriticalSection(&m_lock);
 }
 
 void Logger::close() {
+    EnterCriticalSection(&m_lock);
+
     if (m_initialized) {
-        log(L"日志系统关闭");
+        // 直接写关闭行，避免在持锁状态下重入 log()
+        if (!m_useDebugOutput) {
+            std::string timestamp = wstringToUTF8(getCurrentTime());
+            m_logFile << "[" << timestamp << "] " << wstringToUTF8(L"日志系统关闭") << std::endl;
+            m_logFile.flush();
+        } else {
+            OutputDebugStringW(L"日志系统关闭\n");
+        }
         m_logFile.close();
         m_initialized = false;
     }
+
+    LeaveCriticalSection(&m_lock);
 }
 
 std::string Logger::wstringToUTF8(const std::wstring& wstr) {

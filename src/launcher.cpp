@@ -1,16 +1,14 @@
 #include <windows.h>
 #include <string>
 #include <iostream>
+#include <cwchar>
 #include <tlhelp32.h>
-#include <shlwapi.h>
 #include "detours.h"
 #include "settings.h"
 #include "logger.h"
 #include "author_window.h"
 #include "utils.h"
 #include "locale_emulator_plus.h"
-
-#pragma comment(lib, "shlwapi.lib")
 
 // 函数声明
 DWORD findProcessByPath(const std::wstring& processPath);
@@ -30,11 +28,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     // 通过快捷方式（设置了"起始位置"）启动时 CWD 可能与 EXE 目录不一致，
     // 因此基于模块目录构建绝对路径
     ConfigManager& configManager = ConfigManager::getInstance();
-    std::wstring configFile = Utils::combinePaths(Utils::getModuleDirectory(), L"celica_hook.ini");
+    std::wstring moduleDir = Utils::getModuleDirectory();
+    std::wstring configFile = Utils::combinePaths(moduleDir, L"celica_hook.ini");
     
     if (!configManager.loadConfig(configFile)) {
         MessageBoxW(NULL, L"配置文件加载失败，请确保celica_hook.ini存在", L"错误", MB_ICONERROR);
         return 1;
+    }
+
+    // 初始化启动器日志：与游戏侧日志（celica_hook.log）分开，
+    // 避免游戏加载 DLL 时以 trunc 模式清空启动器日志
+    if (configManager.getConfig().enableLogging) {
+        Logger::getInstance().initialize(Utils::combinePaths(moduleDir, L"celica_hook_launcher.log"));
     }
 
     // 显示作者信息窗口
@@ -58,16 +63,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return 0;
     }
     
-    // 获取当前目录
-    wchar_t currentDir[MAX_PATH];
-    GetCurrentDirectoryW(MAX_PATH, currentDir);
-    std::wstring currentPath = currentDir;
-    
-    // 构建DLL完整路径
-    std::wstring dllPath = currentPath + L"\\CELICA_HOOK.dll";
+    // DLL 必须与启动器同目录（基于模块目录而非 CWD，避免快捷方式起始位置影响）
+    std::wstring dllPath = Utils::combinePaths(moduleDir, L"CELICA_HOOK.dll");
     
     // 检查DLL是否存在
-    if (GetFileAttributesW(dllPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!Utils::fileExists(dllPath)) {
         MessageBoxW(NULL, L"找不到CELICA_HOOK.dll，请确保它与启动器在同一目录", L"错误", MB_ICONERROR);
         return 1;
     }
@@ -82,16 +82,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return 1;
     }
     
-    // 处理相对路径：如果路径不是绝对路径，则转换为相对于当前目录的绝对路径
-    if (PathIsRelativeW(targetPath.c_str())) {
-        wchar_t fullPath[MAX_PATH];
-        PathCombineW(fullPath, currentDir, targetPath.c_str());
-        targetPath = fullPath;
-        std::wcout << L"相对路径已转换为绝对路径: " << targetPath << std::endl;
-    }
+    // 相对路径基于模块目录解析，并规范化为绝对路径（GetFullPathNameW 处理 .. 等段）
+    targetPath = Utils::resolveTargetPath(targetPath);
+    std::wcout << L"目标程序绝对路径: " << targetPath << std::endl;
     
     // 检查目标程序是否存在
-    if (GetFileAttributesW(targetPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!Utils::fileExists(targetPath)) {
         MessageBoxW(NULL, (L"找不到目标程序: " + targetPath).c_str(), L"错误", MB_ICONERROR);
         return 1;
     }
@@ -101,6 +97,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     std::wcout << L"DLL路径: " << dllPath << std::endl;
     std::wcout << std::endl;
 
+    // 目标程序的工作目录设为其所在目录
+    // （对"游戏 exe 位于子目录"的场景比继承启动器 CWD 更可靠）
+    std::wstring targetDir = Utils::getDirectory(targetPath);
+
     // 检查是否需要转区
     LocaleEmulatorPlus& localeEmulator = LocaleEmulatorPlus::getInstance();
     if (config.enableLocaleEmulation) {
@@ -108,14 +108,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         
         // 使用转区方式启动目标程序
         if (localeEmulator.createProcessWithLocale(targetPath)) {
-            std::wcout << L"转区启动成功，等待进程稳定后注入DLL..." << std::endl;
+            std::wcout << L"转区启动成功，等待目标进程出现..." << std::endl;
+            Logger::getInstance().log(L"转区启动成功，开始轮询目标进程: " + targetPath);
             
-            // 等待一小段时间让LEP LoaderDll完成注入初始化，避免与加载器锁竞争
+            // 立即开始轮询（不再先 Sleep）：若游戏启动后立刻崩溃，
+            // 延迟 300ms 再轮询会完全错过该进程，导致误报"找不到进程"
             const DWORD startTick = GetTickCount();
-            const DWORD maxWaitMs = 3000;
-            Sleep(300);
+            const DWORD maxWaitMs = 10000;  // LEP 加载器注入 + 游戏启动可能较慢，放宽窗口
 
-            // 轮询查找目标进程，找到后立即注入（避免窗口创建后才注入导致错过标题hook）
             DWORD processId = 0;
             while (GetTickCount() - startTick < maxWaitMs) {
                 processId = findProcessByPath(targetPath);
@@ -128,6 +128,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             if (processId != 0) {
                 std::wcout << L"找到目标进程ID: " << processId << L"，开始注入DLL..." << std::endl;
                 
+                // 找到进程后再短暂等待，让 LEP LoaderDll 完成自身的注入初始化，
+                // 避免与加载器锁竞争（此时目标进程已确认存在，等待是安全的）
+                Sleep(300);
+                
                 // 注入DLL到已运行的进程
                 if (injectDllToProcess(processId, dllPath)) {
                     std::wcout << L"DLL注入成功!" << std::endl;
@@ -137,7 +141,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     return 1;
                 }
             } else {
-                MessageBoxW(NULL, L"无法找到转区启动的目标进程", L"错误", MB_ICONERROR);
+                Logger::getInstance().log(L"未能在 " + std::to_wstring(maxWaitMs) + L"ms 内找到目标进程: " + targetPath);
+                MessageBoxW(NULL, (L"无法找到转区启动的目标进程:\n" + targetPath +
+                    L"\n\n请检查:\n"
+                    L"1. 对应架构的 LoaderDll 与 LocaleEmulatorPlus DLL 是否与启动器同目录\n"
+                    L"2. 游戏是否启动后立即崩溃（可先直接运行游戏验证）\n"
+                    L"3. 在 celica_hook.ini 中设置 EnableLogging=1 后重试，查看 celica_hook_launcher.log 排查").c_str(),
+                    L"错误", MB_ICONERROR);
                 return 1;
             }
         } else {
@@ -145,27 +155,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             return 1;
         }
     } else {
-        // 不需要转区，直接使用DetourCreateProcessWithDllW启动并注入
+        // 不需要转区，直接使用DetourCreateProcessWithDllExW启动并注入
         std::wcout << L"无需转区，直接启动目标程序并注入DLL..." << std::endl;
         
         STARTUPINFOW si = { sizeof(STARTUPINFOW) };
         PROCESS_INFORMATION pi = { 0 };
         si.cb = sizeof(si);
         
-        // 使用DetourCreateProcessWithDllW启动目标程序并注入DLL
-        BOOL result = DetourCreateProcessWithDllW(
-            targetPath.c_str(),           // 目标 EXE 路径
+        // DLL 名 "CELICA_HOOK.dll" 为纯 ASCII，可通过 Detours 的 ANSI 参数安全传递；
+        // 通过 lpCurrentDirectory 把子进程工作目录锚定到游戏目录，
+        // 使相对 DLL 名解析不再依赖启动器 CWD（修复快捷方式起始位置问题）
+        BOOL result = DetourCreateProcessWithDllExW(
+            targetPath.c_str(),           // 目标 EXE 绝对路径
             NULL,                         // 命令行参数（可为空）
             NULL,                         // 安全属性
             NULL,                         // 线程安全属性
             TRUE,                         // 是否继承句柄
             CREATE_SUSPENDED,             // 创建标志
             NULL,                         // 环境变量
-            NULL,                         // 工作目录
+            targetDir.c_str(),            // 工作目录 = 目标程序所在目录
             &si,                          // STARTUPINFO
             &pi,                          // PROCESS_INFORMATION
-            "CELICA_HOOK.dll",            // DLL 路径（ANSI字符串）
-            NULL);                        // 保留字段
+            "CELICA_HOOK.dll",            // DLL 路径（纯 ASCII 文件名）
+            NULL);                        // 自定义 CreateProcess 例程
         
         if (!result) {
             DWORD error = GetLastError();
@@ -206,19 +218,43 @@ DWORD findProcessByPath(const std::wstring& processPath) {
 
     do {
         // 获取进程完整路径
-        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pe.th32ProcessID);
-        if (hProcess) {
-            wchar_t exePath[MAX_PATH];
-            DWORD pathSize = MAX_PATH;
-            if (QueryFullProcessImageNameW(hProcess, 0, exePath, &pathSize)) {
-                if (_wcsicmp(exePath, processPath.c_str()) == 0) {
-                    CloseHandle(hProcess);
-                    CloseHandle(hSnapshot);
-                    return pe.th32ProcessID;
-                }
-            }
-            CloseHandle(hProcess);
+        // 只需 PROCESS_QUERY_INFORMATION 即可查询镜像路径；
+        // 不申请 PROCESS_VM_READ，避免对受保护进程因权限过多而失败
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pe.th32ProcessID);
+        if (!hProcess) {
+            // 无法打开（系统进程/权限不足），跳过
+            continue;
         }
+
+        // 循环增长的缓冲区查询镜像路径，避免 MAX_PATH 截断长路径。
+        // 不用 NULL 缓冲区探测大小：不同 Windows 版本对 NULL 入参的行为
+        // 不完全一致（可能不返回所需大小），直接以递增缓冲区重试更可靠。
+        std::wstring exePath;
+        DWORD bufSize = MAX_PATH;
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            exePath.assign(bufSize, L'\0');
+            DWORD needed = bufSize;
+            if (QueryFullProcessImageNameW(hProcess, 0, &exePath[0], &needed)) {
+                // 成功后按实际字符串长度截断：
+                // 不同系统上 lpdwSize 的输出可能包含或不包含终止符，
+                // 统一用 wcslen 求实际长度
+                exePath.resize(wcslen(exePath.c_str()));
+                break;
+            }
+            if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || needed <= bufSize) {
+                exePath.clear();
+                break;
+            }
+            bufSize = needed;
+        }
+
+        if (!exePath.empty() && _wcsicmp(exePath.c_str(), processPath.c_str()) == 0) {
+            CloseHandle(hProcess);
+            CloseHandle(hSnapshot);
+            return pe.th32ProcessID;
+        }
+
+        CloseHandle(hProcess);
     } while (Process32NextW(hSnapshot, &pe));
 
     CloseHandle(hSnapshot);

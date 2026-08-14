@@ -18,12 +18,17 @@ public:
     bool shouldLaunch() const;
     
 private:
+    // 链接信息结构（前置声明供 hitTestLinkUrl 使用，定义见下）
+    struct LinkInfo;
+
     AuthorWindow() = default;
     ~AuthorWindow() = default;
     
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     static LRESULT handleLinkClick(HWND hwnd, int xPos, int yPos);
     static void openLink(const std::wstring& url);
+    // 命中测试：鼠标是否位于链接行中 URL 文本上
+    static bool hitTestLinkUrl(HWND hwnd, const LinkInfo& link, POINT pt);
     
     // 图标相关函数
     static HICON getTargetProcessIcon();
@@ -49,6 +54,7 @@ private:
     
     static std::vector<LinkInfo> m_links;
     static bool m_linksInitialized;
+    static HFONT m_linkFont; // 链接文本测量/绘制共用字体（show 时创建一次，close 时销毁）
     
     // 按钮相关状态
     static RECT m_confirmBtnRect;   // 确认按钮位置

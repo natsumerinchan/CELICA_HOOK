@@ -18,37 +18,28 @@
 ```md
 CELICA_HOOK/
 ├── CMakeLists.txt          # CMake构建配置
-├── celica_hook.ini               # 配置文件模板
-├── README.md              # 项目说明
-├── detours/               # Detours库文件
-│   ├── detours.h
-│   ├── x86
-│   │    ├── detours.lib
-│   │    └── detours.h(软链接)
-│   └── x64
-│        ├── detours.lib
-│        └── detours.h(软链接)
-└── src/                   # 源代码
-    ├── main.cpp           # 主程序入口
-    ├── settings.h         # 配置管理头文件
-    ├── config_manager.cpp # 配置管理器实现
-    ├── author_window.h         # 弹窗头文件
-    ├── author_window.cpp # 弹窗实现
-    ├── launcher.cpp # 注入器实现
-    ├── logger.h           # 日志系统头文件
-    ├── logger.cpp         # 日志系统实现
-    ├── hook_manager.h     # Hook管理器头文件
-    ├── hook_manager.cpp   # Hook管理器实现
-    ├── file_hook.h   # 文件hook头文件
-    ├── file_hook.cpp # 文件hook实现
-    ├── font_hook.h        # 字体hook头文件
-    ├── font_hook.cpp      # 字体hook实现
-    ├── window_title_hook.h    # 窗口标题hook头文件
-    ├── window_title_hook.cpp  # 窗口标题hook实现
-    ├── locale_emulator_plus.h      # 转区功能头文件
-    ├── locale_emulator_plus.cpp    # 转区功能实现
-    ├── utils.h            # 工具类头文件
-    └── utils.cpp          # 工具类实现
+├── CMakeSettings.json      # Visual Studio CMake 构建配置
+├── celica_hook.ini         # 配置文件模板
+├── README.md               # 项目说明
+└── src/                    # 源代码
+    ├── detours/            # Detours库文件（按架构分目录）
+    │   ├── detours.h
+    │   ├── x86/detours.lib
+    │   └── x64/detours.lib
+    ├── main.cpp            # DLL入口（注入侧初始化）
+    ├── settings.h          # 配置结构与弹窗内容
+    ├── config_manager.cpp  # 配置管理器实现
+    ├── author_window.h/.cpp# 启动器作者弹窗
+    ├── launcher.cpp        # 注入器实现
+    ├── logger.h/.cpp       # 日志系统
+    ├── hook_manager.h/.cpp # Hook管理器
+    ├── file_hook.h/.cpp    # 文件重定向/欺骗hook
+    ├── font_hook.h/.cpp    # 字体hook
+    ├── window_title_hook.h/.cpp # 窗口标题hook
+    ├── locale_emulator_plus.h/.cpp # 转区功能
+    ├── utils.h/.cpp        # 工具类
+    └── tests/              # 纯逻辑单元测试
+        └── test_utils.cpp
 ```
 
 ## 编译说明
@@ -110,11 +101,14 @@ RedirectFolder=CHSFiles
 EnableExtensionCheck=0
 ; 重定向文件扩展名(逗号分隔，如 .txt,.bin)
 RedirectExtensions=.txt,.bin
+; 游戏目录外的路径是否仅按文件名匹配(1=启用，0=禁用)
+; 启用后系统目录/外部目录中的同名文件也可能被重定向，慎用
+EnableFilenameOnlyMatch=0
 
 ; 文件欺骗功能配置
-; 隐藏的文件路径列表(逗号分隔，基于程序根目录的相对路径(绝对路径亦可)，如 data\file.txt,config\settings.ini)
+; 隐藏的文件路径列表(逗号分隔，基于程序根目录的相对路径(位于游戏目录内的绝对路径亦可)，如 data\file.txt,config\settings.ini)
 SpoofedFiles=
-; 隐藏的目录路径列表(逗号分隔，基于程序根目录的相对路径(绝对路径亦可)，如 temp\logs,cache\data)
+; 隐藏的目录路径列表(逗号分隔，基于程序根目录的相对路径(位于游戏目录内的绝对路径亦可)，如 temp\logs,cache\data)
 SpoofedDirectories=
 
 [Font]
@@ -166,7 +160,7 @@ LocaleId=1041
 Timezone=Tokyo Standard Time
 
 [Logging]
-; 日志文件路径
+; 日志文件路径（相对路径基于游戏目录解析；启动器日志固定写入 celica_hook_launcher.log）
 LogFile=celica_hook.log
 ```
 
@@ -177,26 +171,28 @@ LogFile=celica_hook.log
   - 例如：`CHSFiles/data/text.txt` 会替换 `data/text.txt`
 - **EnableExtensionCheck**: 检查重定向文件扩展名(0=禁用，1=启用)
 - **RedirectExtensions**: 重定向文件扩展名(逗号分隔，如 .txt,.bin)
+- **EnableFilenameOnlyMatch**: 游戏目录外的路径是否仅按文件名匹配(1=启用，0=禁用，慎用)
 
 **行为说明：**
 
 - 路径匹配不区分大小写，游戏以任意大小写访问均可命中重定向
 - 支持`\\?\`长路径前缀，自动剥离前缀后参与匹配
-- 启动时扫描`CHSFiles`构建映射表，运行时新增文件也会实时检测
+- 启动时扫描`CHSFiles`构建映射表，运行时新增文件也会实时检测（未命中映射的查询带 2 秒 TTL 缓存，兼顾性能与实时性）
 - 写类操作（创建/覆盖/截断）会自动递归创建重定向目标所需的父目录
 - 基于游戏可执行文件所在目录计算相对路径，与启动目录无关
+- **EnableFilenameOnlyMatch**：默认（0）只匹配游戏目录内的路径；设为 1 时，游戏目录外的路径退化为仅按文件名匹配（可能误伤系统/外部目录的同名文件，慎用）
 
 ### 3. 文件欺骗
 
 **功能说明：**
 
-文件欺骗功能可以隐藏特定的文件或目录，让程序认为这些文件不存在。当程序尝试访问被欺骗的文件时，会返回文件不存在的错误。
+文件欺骗功能可以隐藏特定的文件或目录，让程序认为这些文件不存在。当程序尝试访问被欺骗的文件时，会返回文件不存在的错误。除拦截文件打开（`CreateFileA/W/2`）外，同时拦截目录枚举（`FindFirstFileA/W`、`FindNextFileA/W`、`FindClose`），被欺骗的文件与目录在目录列表中同样不可见。
 
 **配置参数：**
 
-- **SpoofedFiles**: 要欺骗的文件路径列表（逗号分隔，基于程序根目录的相对路径）
+- **SpoofedFiles**: 要欺骗的文件路径列表（逗号分隔，基于程序根目录的相对路径；位于游戏目录内的绝对路径亦可，会自动转换为相对路径）
   - 例如：`data\file1.txt,config\settings.ini`
-- **SpoofedDirectories**: 要欺骗的目录路径列表（逗号分隔，基于程序根目录的相对路径）
+- **SpoofedDirectories**: 要欺骗的目录路径列表（逗号分隔，基于程序根目录的相对路径；位于游戏目录内的绝对路径亦可）
   - 例如：`temp\logs,cache\data`
 
 **优先级说明：**
@@ -248,7 +244,7 @@ LogFile=celica_hook.log
 **功能说明：**
 
 - 游戏启动时会显示作者信息弹窗
-- 倒计时5秒后弹窗会自动关闭并继续游戏
+- 点击"同意"后继续启动游戏，点击"退出"则中止启动
 - 弹窗标题使用配置中的`NewWindowTitle`，如果未定义则使用默认标题
 - 显示多个作者ID和主页链接（或作者在不同论坛使用不同的ID）
 - 弹窗内的链接可点击并跳转
@@ -304,11 +300,14 @@ LogFile=celica_hook.log
 
 ## Hook的函数
 
-### 文件重定向
+### 文件重定向与欺骗
 
 - `CreateFileA`
 - `CreateFileW`
 - `CreateFile2`（Windows 8+ 系统，Win7 上自动跳过）
+- `FindFirstFileA` / `FindFirstFileW`（文件欺骗，隐藏目录枚举）
+- `FindNextFileA` / `FindNextFileW`（文件欺骗，过滤枚举结果）
+- `FindClose`（文件欺骗，维护枚举句柄映射）
 
 ### 字体修改
 
@@ -318,11 +317,6 @@ LogFile=celica_hook.log
 - `CreateFontIndirectW`
 - `EnumFontFamiliesExA`
 - `EnumFontFamiliesExW`
-
-### 代码页转换
-
-- `MultiByteToWideChar`
-- `WideCharToMultiByte`
 
 ### 窗口标题修改
 
@@ -336,7 +330,9 @@ LogFile=celica_hook.log
 1. 支持32位x86与x86_64应用程序，启动器和DLL的架构必须与目标程序一致（x86游戏用x86产物，x64游戏用x64产物）
 2. 使用前请备份重要文件
 3. 某些游戏可能有反调试反作弊保护，注入前请确认
-4. 日志文件会记录详细的hook操作，可用于调试
+4. 日志文件会记录详细的hook操作，可用于调试；游戏侧日志写入 `LogFile`，启动器日志写入 `celica_hook_launcher.log`
+5. 启动器、DLL 与配置文件须置于同一目录（路径基于模块目录解析，与启动目录无关）
+6. 可用 `ctest`（或直接运行 `CELICA_HOOK_TESTS.exe`）执行纯逻辑单元测试
 
 ## 许可证
 

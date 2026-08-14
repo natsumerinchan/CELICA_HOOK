@@ -8,6 +8,10 @@
 HANDLE WindowTitleHook::m_reapplyThread = nullptr;
 HANDLE WindowTitleHook::m_reapplyEvent = nullptr;
 
+// 重应用线程停止标志：shutdown 时置位，线程在下一次循环检查时尽快退出，
+// 避免 DLL 卸载后线程仍调用本模块代码导致 use-after-free
+static volatile LONG g_reapplyStop = 0;
+
 // 定义原始函数指针
 HWND (WINAPI* WindowTitleHook::OriginalCreateWindowExW)(
     DWORD dwExStyle,
@@ -110,12 +114,18 @@ void WindowTitleHook::shutdown() {
     Logger::getInstance().log(L"开始卸载窗口标题hook");
     
     // 通知后台重应用线程退出，并等待其结束，
-    // 避免 DLL 卸载期间该线程仍在调用 Logger 等进程代码导致崩溃
+    // 避免 DLL 卸载期间该线程仍在调用 Logger 等进程代码导致崩溃。
+    // 停止标志使线程在下一次循环检查时立即退出（无需等待 500ms 轮询超时），
+    // 等待时间延长到 10 秒覆盖最坏情况（SendMessageTimeout 每次最多阻塞 1 秒）。
+    InterlockedExchange(&g_reapplyStop, 1);
     if (m_reapplyEvent != nullptr) {
         SetEvent(m_reapplyEvent);
     }
     if (m_reapplyThread != nullptr) {
-        WaitForSingleObject(m_reapplyThread, 5000);
+        DWORD waitResult = WaitForSingleObject(m_reapplyThread, 10000);
+        if (waitResult != WAIT_OBJECT_0) {
+            Logger::getInstance().log(L"警告: 窗口标题重应用线程未在10秒内退出，继续卸载");
+        }
         CloseHandle(m_reapplyThread);
         m_reapplyThread = nullptr;
     }
@@ -338,8 +348,14 @@ void WindowTitleHook::reapplyExistingWindowTitles() {
         m_reapplyEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     }
     
+    // 重置停止标志（重新初始化时线程可能再次启动）
+    InterlockedExchange(&g_reapplyStop, 0);
+    
     // 在后台线程执行标题重新应用，避免在DllMain（持有加载器锁）期间
-    // 跨线程向游戏主线程发送窗口消息导致死锁
+    // 跨线程向游戏主线程发送窗口消息导致死锁。
+    // 说明：在 DllMain 中创建线程存在加载器锁风险；此处之所以可行，
+    // 是因为新线程完成启动需要加载器锁，它必须等 DllMain 返回后才能运行，
+    // 而本函数不在 DllMain 中等待该线程，因此不会形成死锁。
     m_reapplyThread = CreateThread(nullptr, 0, reapplyThreadProc, nullptr, 0, nullptr);
 }
 
@@ -351,11 +367,15 @@ DWORD WINAPI WindowTitleHook::reapplyThreadProc(LPVOID lpParam) {
 
     // 多次重试，覆盖游戏窗口稍晚才创建的情况
     for (int attempt = 0; attempt < 10; ++attempt) {
+        // 检查停止标志：shutdown 已请求退出
+        if (g_reapplyStop) {
+            break;
+        }
         if (applyTitlesToExistingWindows()) {
             break;
         }
         // 每轮之间检查退出事件，DLL 卸载时能尽快结束线程
-        if (m_reapplyEvent != nullptr && WaitForSingleObject(m_reapplyEvent, 500) == WAIT_OBJECT_0) {
+        if (g_reapplyStop || (m_reapplyEvent != nullptr && WaitForSingleObject(m_reapplyEvent, 500) == WAIT_OBJECT_0)) {
             break;
         }
     }
@@ -403,7 +423,7 @@ bool WindowTitleHook::applyTitlesToExistingWindows() {
             std::string ansiTitle(aLen > 0 ? aLen : 1, '\0');
             if (aLen > 0) { WideCharToMultiByte(CP_ACP, 0, newTitle.c_str(), -1, &ansiTitle[0], aLen, nullptr, nullptr); }
             int wLen = MultiByteToWideChar(CP_ACP, 0, ansiTitle.c_str(), -1, nullptr, 0);
-            std::wstring roundTrip(wLen > 0 ? wLen : 1, L"\0"[0]);
+            std::wstring roundTrip(wLen > 0 ? wLen : 1, L'\0');
             if (wLen > 0) { MultiByteToWideChar(CP_ACP, 0, ansiTitle.c_str(), -1, &roundTrip[0], wLen); }
             if (wLen > 0) { roundTrip.resize(wLen - 1); }
             if (roundTrip == newTitle) {

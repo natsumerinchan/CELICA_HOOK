@@ -15,18 +15,19 @@ struct LinkInfo {
 };
 
 // 弹窗显示内容
-#define WINDOW_AUTHOR L"作者: " L"natsumerin@ai2.moe==雨宮ゆうこ@moyu.moe"
-#define WINDOW_STATEMENT L"声明: " L"本补丁免费发布于御爱和鲲补丁站，允许转载但禁止倒卖或冒充人工汉化发布"
+inline constexpr wchar_t WINDOW_AUTHOR[] = L"作者: " L"natsumerin@ai2.moe==雨宮ゆうこ@moyu.moe";
+inline constexpr wchar_t WINDOW_STATEMENT[] = L"声明: " L"本补丁免费发布于御爱和鲲补丁站，允许转载但禁止倒卖或冒充人工汉化发布";
 
 // 链接定义
-static const LinkInfo WINDOW_LINKS[] = {
+// 使用 inline 变量避免每个包含本头文件的翻译单元各持一份副本
+inline const LinkInfo WINDOW_LINKS[] = {
     {L"补丁仓库: ", L"https://github.com/natsumerinchan/MyGalTranslationPatches.git"},
     {L"御爱同萌: ", L"https://www.ai2.moe/profile/13275-natsumerin"},
     {L"鲲Galgame补丁站: ", L"https://www.moyu.moe/user/18361/resource"},
     {L"CELICA_HOOK仓库: ", L"https://github.com/natsumerinchan/CELICA_HOOK.git"}
 };
 
-static const int WINDOW_LINKS_COUNT = sizeof(WINDOW_LINKS) / sizeof(WINDOW_LINKS[0]);
+inline constexpr int WINDOW_LINKS_COUNT = sizeof(WINDOW_LINKS) / sizeof(WINDOW_LINKS[0]);
 
 // 配置结构体
 struct HookConfig {
@@ -36,6 +37,8 @@ struct HookConfig {
     
     // 文件重定向配置
     bool enableExtensionCheck = false;
+    // 游戏目录外的路径是否仅按文件名匹配（默认关闭，避免误重定向系统/外部文件）
+    bool enableFilenameOnlyMatch = false;
     std::wstring redirectFolder = L"CHSFiles";
     std::wstring redirectExtensions = L".txt";
     
@@ -83,7 +86,6 @@ public:
     
     bool loadConfig(const std::wstring& configFile);
     const HookConfig& getConfig() const;
-    void setConfig(const HookConfig& config);
     
     // 文件重定向/欺骗缓存访问接口
     bool findRedirectedPath(const std::wstring& relativePath, std::wstring& outFullPath) const;
@@ -100,8 +102,8 @@ private:
     
     // 缓存解析后的配置列表
     std::vector<std::wstring> m_redirectExtList;   // 小写扩展名列表（含点，如 ".txt"）
-    std::vector<std::wstring> m_spoofedFileList;   // 小写相对路径列表
-    std::vector<std::wstring> m_spoofedDirList;    // 小写相对目录列表（含末尾反斜杠）
+    std::vector<std::wstring> m_spoofedFileList;   // 小写归一化路径列表（游戏目录内为相对路径）
+    std::vector<std::wstring> m_spoofedDirList;    // 小写归一化目录列表（不含末尾反斜杠）
     
     void parseConfigLine(const std::wstring& line);
     void buildRedirectMap();

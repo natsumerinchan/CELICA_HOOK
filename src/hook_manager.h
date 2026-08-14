@@ -22,7 +22,7 @@ private:
     bool installFontHooks();
     bool installWindowTitleHooks();
     
-    void logHookStatus(const char* hookName, bool success);
+    void logHookStatus(const wchar_t* hookName, bool success);
 };
 
 #endif // HOOK_MANAGER_H

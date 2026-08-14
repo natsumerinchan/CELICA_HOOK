@@ -1,13 +1,10 @@
-// 抑制C++17弃用警告
-#define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
-
 #include "settings.h"
 #include "utils.h"
 #include "logger.h"
 #include <fstream>
 #include <sstream>
+#include <iterator>
 #include <algorithm>
-#include <codecvt>
 
 ConfigManager& ConfigManager::getInstance() {
     static ConfigManager instance;
@@ -25,23 +22,47 @@ static int safeStoi(const std::wstring& str, int defaultValue = 0) {
     }
 }
 
+// 布尔值解析：兼容 1/0 与 true/false/yes/no/on/off（大小写不敏感）
+static bool parseBool(const std::wstring& value) {
+    std::wstring v = Utils::toLower(value);
+    return v == L"1" || v == L"true" || v == L"yes" || v == L"on";
+}
+
 bool ConfigManager::loadConfig(const std::wstring& configFile) {
     Logger::getInstance().log(L"正在加载配置文件: " + configFile);
     
     try {
-        std::wifstream file(configFile);
+        std::ifstream file(configFile, std::ios::binary);
         if (!file.is_open()) {
             Logger::getInstance().log(L"无法打开配置文件: " + configFile);
             return false;
         }
     
-        // 设置UTF-8编码，确保正确读取中文字符
-        file.imbue(std::locale(file.getloc(), new std::codecvt_utf8<wchar_t>));
-        
+        // 以字节流读入后按 UTF-8 解码（与日志/字体等模块的编码约定一致），
+        // 替代已弃用的 std::codecvt_utf8，并显式剥离 BOM，
+        // 避免首行注释因 BOM 前缀而解析失败
+        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        file.close();
+
+        if (content.size() >= 3 &&
+            static_cast<unsigned char>(content[0]) == 0xEF &&
+            static_cast<unsigned char>(content[1]) == 0xBB &&
+            static_cast<unsigned char>(content[2]) == 0xBF) {
+            content.erase(0, 3);
+        }
+
+        std::wstring wcontent = Utils::utf8ToWstring(content);
+        std::wstringstream ss(wcontent);
+
         std::wstring line;
         std::wstring currentSection;
         
-        while (std::getline(file, line)) {
+        while (std::getline(ss, line)) {
+            // 去掉可能的 CR（Windows 换行）
+            if (!line.empty() && line.back() == L'\r') {
+                line.pop_back();
+            }
+
             // 移除前后空白字符
             line.erase(0, line.find_first_not_of(L" \t"));
             line.erase(line.find_last_not_of(L" \t") + 1);
@@ -73,8 +94,6 @@ bool ConfigManager::loadConfig(const std::wstring& configFile) {
             }
         }
         
-        file.close();
-        
         // 构建重定向映射
         buildRedirectMap();
         // 重建缓存列表
@@ -96,22 +115,24 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
     std::wstring value = line.substr(pos + 1);
     
     if (key == L"General.EnableFileRedirect") {
-        m_config.enableFileRedirect = (value == L"1");
+        m_config.enableFileRedirect = parseBool(value);
     } else if (key == L"General.EnableFileSpoofing") {
-        m_config.enableFileSpoofing = (value == L"1");
+        m_config.enableFileSpoofing = parseBool(value);
     } else if (key == L"General.EnableFontHook") {
-        m_config.enableFontHook = (value == L"1");
+        m_config.enableFontHook = parseBool(value);
     } else if (key == L"General.EnableWindowTitleHook") {
-        m_config.enableWindowTitleHook = (value == L"1");
+        m_config.enableWindowTitleHook = parseBool(value);
     } else if (key == L"General.EnableLocaleEmulation") {
-        m_config.enableLocaleEmulation = (value == L"1");
+        m_config.enableLocaleEmulation = parseBool(value);
     } else if (key == L"General.EnableLogging") {
-        m_config.enableLogging = (value == L"1");
+        m_config.enableLogging = parseBool(value);
     } else if (key == L"File.RedirectFolder") {
         m_config.redirectFolder = value;
     } else if (key == L"File.EnableExtensionCheck") {
-        m_config.enableExtensionCheck = (value == L"1");
+        m_config.enableExtensionCheck = parseBool(value);
         Logger::getInstance().log(L"设置扩展名检查: " + value);
+    } else if (key == L"File.EnableFilenameOnlyMatch") {
+        m_config.enableFilenameOnlyMatch = parseBool(value);
     } else if (key == L"File.RedirectExtensions") {
         m_config.redirectExtensions = value;
         Logger::getInstance().log(L"设置重定向扩展名: " + value);
@@ -124,13 +145,13 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
     } else if (key == L"Font.FontFileName") {
         m_config.fontFileName = value;
     } else if (key == L"Font.EnableCreateFontA") {
-        m_config.enableCreateFontA = (value == L"1");
+        m_config.enableCreateFontA = parseBool(value);
     } else if (key == L"Font.EnableCreateFontW") {
-        m_config.enableCreateFontW = (value == L"1");
+        m_config.enableCreateFontW = parseBool(value);
     } else if (key == L"Font.EnableCreateFontIndirectA") {
-        m_config.enableCreateFontIndirectA = (value == L"1");
+        m_config.enableCreateFontIndirectA = parseBool(value);
     } else if (key == L"Font.EnableCreateFontIndirectW") {
-        m_config.enableCreateFontIndirectW = (value == L"1");
+        m_config.enableCreateFontIndirectW = parseBool(value);
     } else if (key == L"Font.Charset") {
         m_config.localeCharset = Utils::hexStringToInt(value);
     } else if (key == L"Font.FontWeight") {
@@ -140,15 +161,17 @@ void ConfigManager::parseConfigLine(const std::wstring& line) {
     } else if (key == L"Font.FontWidth") {
         m_config.fontWidth = safeStoi(value);
     } else if (key == L"WindowTitle.EnableTitleCheck") {
-        m_config.enableTitleCheck = (value == L"1");
+        m_config.enableTitleCheck = parseBool(value);
     } else if (key == L"WindowTitle.OriginalWindowTitle") {
         m_config.originalWindowTitle = value;
     } else if (key == L"WindowTitle.NewWindowTitle") {
         m_config.newWindowTitle = value;
     } else if (key == L"LocaleEmulation.LocaleCodepage") {
-        m_config.localeCodepage = safeStoi(value);
+        int cp = safeStoi(value);
+        m_config.localeCodepage = cp < 0 ? 0u : static_cast<unsigned int>(cp);
     } else if (key == L"LocaleEmulation.LocaleId") {
-        m_config.localeId = safeStoi(value);
+        int id = safeStoi(value);
+        m_config.localeId = id < 0 ? 0u : static_cast<unsigned int>(id);
     } else if (key == L"LocaleEmulation.Timezone") {
         m_config.timezone = value;
     } else if (key == L"Logging.LogFile") {
@@ -208,20 +231,49 @@ void ConfigManager::rebuildCachedLists() {
     for (auto& ext : Utils::splitCommaList(m_config.redirectExtensions)) {
         m_redirectExtList.push_back(Utils::toLower(ext));
     }
-    
+
+    // 游戏目录（归一化），用于把配置中的绝对路径转换为相对路径
+    std::wstring gameDir = Utils::normalizePath(getGameDirectory());
+
     // 解析欺骗文件列表（归一化 + 小写）
+    // 修复：配置注释声称"绝对路径亦可"，但此前实现只做相对比较导致绝对路径
+    // 永远无法命中。现在位于游戏目录内的绝对路径会被转换为相对路径。
     for (auto& file : Utils::splitCommaList(m_config.spoofedFiles)) {
-        m_spoofedFileList.push_back(Utils::toLower(Utils::normalizePath(file)));
+        std::wstring f = Utils::normalizePath(file);
+        if (Utils::isAbsolutePath(f)) {
+            std::wstring full = Utils::normalizePath(Utils::getFullPath(f));
+            if (Utils::startsWithIgnoreCase(full, gameDir) &&
+                (full.size() == gameDir.size() || full[gameDir.size()] == L'\\')) {
+                f = full.substr(gameDir.size() + 1);
+            } else {
+                f = full;  // 游戏目录外的绝对路径保留（仅文件名兜底模式下可能匹配）
+            }
+        }
+        std::wstring lower = Utils::toLower(f);
+        if (!lower.empty()) {
+            m_spoofedFileList.push_back(lower);
+        }
     }
     
-    // 解析欺骗目录列表（归一化 + 小写 + 确保末尾反斜杠）
+    // 解析欺骗目录列表（归一化 + 小写；不再强制末尾反斜杠，
+    // 由 isDirectorySpoofed 用组件边界判断）
     for (auto& dir : Utils::splitCommaList(m_config.spoofedDirectories)) {
-        std::wstring normalized = Utils::toLower(Utils::normalizePath(dir));
-        if (!normalized.empty() && normalized.back() != L'\\') {
-            normalized += L'\\';
+        std::wstring d = Utils::normalizePath(dir);
+        if (Utils::isAbsolutePath(d)) {
+            std::wstring full = Utils::normalizePath(Utils::getFullPath(d));
+            if (Utils::startsWithIgnoreCase(full, gameDir) &&
+                (full.size() == gameDir.size() || full[gameDir.size()] == L'\\')) {
+                d = full.substr(gameDir.size() + 1);
+            } else {
+                d = full;
+            }
         }
-        if (!normalized.empty()) {
-            m_spoofedDirList.push_back(normalized);
+        std::wstring lower = Utils::toLower(d);
+        while (!lower.empty() && lower.back() == L'\\') {
+            lower.pop_back();
+        }
+        if (!lower.empty()) {
+            m_spoofedDirList.push_back(lower);
         }
     }
 }
@@ -267,13 +319,18 @@ bool ConfigManager::isFileSpoofed(const std::wstring& relativePath) const {
 bool ConfigManager::isDirectorySpoofed(const std::wstring& relativePath) const {
     if (!m_config.enableFileSpoofing || m_spoofedDirList.empty()) return false;
     
-    std::wstring normalized = Utils::normalizePath(relativePath);
-    std::wstring lowerPath = Utils::toLower(normalized);
+    std::wstring lowerPath = Utils::toLower(Utils::normalizePath(relativePath));
+    while (!lowerPath.empty() && lowerPath.back() == L'\\') {
+        lowerPath.pop_back();
+    }
     
-    // 目录匹配：相对路径是某个欺骗目录或在其子目录下
+    // 目录匹配：相对路径是某个欺骗目录，或在其子目录下。
+    // 使用组件边界判断，避免 "temp\logs" 误匹配 "temp\logs2\..."
     for (const auto& spoofedDir : m_spoofedDirList) {
-        if (lowerPath == spoofedDir || 
-            (lowerPath.size() > spoofedDir.size() && lowerPath.compare(0, spoofedDir.size(), spoofedDir) == 0)) {
+        if (lowerPath == spoofedDir) return true;
+        if (lowerPath.size() > spoofedDir.size() &&
+            lowerPath.compare(0, spoofedDir.size(), spoofedDir) == 0 &&
+            lowerPath[spoofedDir.size()] == L'\\') {
             return true;
         }
     }
@@ -283,8 +340,4 @@ bool ConfigManager::isDirectorySpoofed(const std::wstring& relativePath) const {
 
 const HookConfig& ConfigManager::getConfig() const {
     return m_config;
-}
-
-void ConfigManager::setConfig(const HookConfig& config) {
-    m_config = config;
 }

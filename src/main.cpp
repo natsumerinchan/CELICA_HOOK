@@ -7,6 +7,7 @@
 #include "hook_manager.h"
 #include "utils.h" 
 #include "locale_emulator_plus.h"
+#include "detours.h"
 
 // DLL导出函数声明
 extern "C" __declspec(dllexport) BOOL WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved);
@@ -27,8 +28,13 @@ struct GlobalInitializer {
         const HookConfig& config = configManager.getConfig();
         
         // 初始化日志系统
+        // 相对日志路径基于模块目录解析，避免日志落在与游戏目录不一致的 CWD 下
         if (config.enableLogging) {
-            Logger::getInstance().initialize(config.logFile);
+            std::wstring logFile = config.logFile;
+            if (!Utils::isAbsolutePath(logFile)) {
+                logFile = Utils::combinePaths(Utils::getModuleDirectory(), logFile);
+            }
+            Logger::getInstance().initialize(logFile);
         }
         
         // 初始化转区功能
@@ -45,6 +51,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
     switch (dwReason) {
         case DLL_PROCESS_ATTACH: {
             DisableThreadLibraryCalls(hModule);
+            
+            // Detours 在 x86 下通过 rundll32 辅助进程完成注入修补，
+            // 该辅助进程也会加载本 DLL，此时直接返回，避免执行完整初始化
+            if (DetourIsHelperProcess()) {
+                return TRUE;
+            }
             
             Logger::getInstance().log(L"CELICA_HOOK DLL已加载");
             Logger::getInstance().log(L"进程ID: " + std::to_wstring(GetCurrentProcessId()));
@@ -82,4 +94,3 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
     
     return TRUE;
 }
-

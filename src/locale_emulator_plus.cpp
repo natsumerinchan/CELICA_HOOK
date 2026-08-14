@@ -1,7 +1,7 @@
 #include "locale_emulator_plus.h"
 #include "settings.h"
 #include "logger.h"
-#include <iostream>
+#include "utils.h"
 
 // ============================================================================
 // Locale Emulator Plus (LEP) 转区实现
@@ -232,14 +232,15 @@ bool LocaleEmulatorPlus::relaunchProcess() {
         RegCloseKey(hTimeZone);
     }
 
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, std::size(exePath));
+    // 使用循环缓冲获取完整路径，避免 MAX_PATH 截断长路径
+    std::wstring exePath = Utils::getModuleFilePath();
 
     // LEP 的 LepCreateProcess 需要可修改的命令行缓冲区 (PWSTR)
     PWSTR commandLine = GetCommandLineW();
 
-    wchar_t currentDirectory[MAX_PATH];
-    GetCurrentDirectoryW(std::size(currentDirectory), currentDirectory);
+    // 工作目录统一使用模块目录（游戏 EXE 所在目录），
+    // 避免 CWD 与游戏目录不一致（快捷方式起始位置）导致转区重启后工作目录错误
+    std::wstring currentDirectory = Utils::getModuleDirectory();
 
     STARTUPINFOW startInfo{};
     startInfo.cb = sizeof(startInfo);
@@ -262,9 +263,9 @@ bool LocaleEmulatorPlus::relaunchProcess() {
 
     const auto result = fnLepCreateProcess(
         &leb,
-        exePath,
+        exePath.c_str(),
         commandLine,
-        currentDirectory,
+        currentDirectory.c_str(),
         0,
         &startInfo,
         &processInfo,
@@ -277,27 +278,27 @@ bool LocaleEmulatorPlus::relaunchProcess() {
     FreeLibrary(hLoader);
 
     if (result == ERROR_SUCCESS) {
-        // 成功创建新进程，退出当前进程
+        // 成功创建新进程，退出当前进程（不再返回）
         Logger::getInstance().log(L"新进程创建成功，退出当前进程");
         ExitProcess(0);
-        return true;
-    } else {
-        Logger::getInstance().log(L"LepCreateProcess失败，错误代码: " + std::to_wstring(result));
-        return false;
     }
-}
 
-bool LocaleEmulatorPlus::setupTimezone() {
-    // 时区设置已经在relaunchProcess中处理
-    return true;
+    Logger::getInstance().log(L"LepCreateProcess失败，错误代码: " + std::to_wstring(result));
+    return false;
 }
-
 
 bool LocaleEmulatorPlus::createProcessWithLocale(const std::wstring& applicationPath) {
     // 确保转区功能已初始化
     if (!initialize()) {
         return false;
     }
+
+    // 规范化目标程序路径，并以其所在目录作为子进程工作目录
+    std::wstring absolutePath = Utils::resolveTargetPath(applicationPath);
+    std::wstring currentDirectory = Utils::getDirectory(absolutePath);
+
+    Logger::getInstance().log(L"转区启动目标程序: " + absolutePath);
+    Logger::getInstance().log(L"转区启动工作目录: " + currentDirectory);
     
     if (!m_enabled) {
         // 如果转区功能未启用，使用普通方式启动进程
@@ -306,14 +307,14 @@ bool LocaleEmulatorPlus::createProcessWithLocale(const std::wstring& application
         si.cb = sizeof(si);
         
         const BOOL created = CreateProcessW(
-            applicationPath.c_str(),
+            absolutePath.c_str(),
             NULL,
             NULL,
             NULL,
             FALSE,
             0,
             NULL,
-            NULL,
+            currentDirectory.c_str(),
             &si,
             &pi
         );
@@ -355,9 +356,6 @@ bool LocaleEmulatorPlus::createProcessWithLocale(const std::wstring& application
         RegCloseKey(hTimeZone);
     }
 
-    wchar_t currentDirectory[MAX_PATH];
-    GetCurrentDirectoryW(std::size(currentDirectory), currentDirectory);
-
     STARTUPINFOW startInfo{};
     startInfo.cb = sizeof(startInfo);
     ML_PROCESS_INFORMATION processInfo{};
@@ -380,9 +378,9 @@ bool LocaleEmulatorPlus::createProcessWithLocale(const std::wstring& application
     // 使用转区设置启动目标程序
     const auto result = fnLepCreateProcess(
         &leb,
-        applicationPath.c_str(),  // 目标程序路径
+        absolutePath.c_str(),     // 目标程序绝对路径
         NULL,                     // 命令行参数
-        currentDirectory,         // 工作目录
+        currentDirectory.c_str(), // 工作目录 = 目标程序所在目录
         0,                        // 创建标志
         &startInfo,
         &processInfo,

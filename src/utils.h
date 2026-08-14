@@ -14,6 +14,7 @@ public:
     static std::string wstringToString(const std::wstring& wstr);
     static std::string wstringToANSI(const std::wstring& wstr);
     static std::wstring getModuleDirectory();
+    static std::wstring getModuleFilePath();
     static bool fileExists(const std::wstring& path);
     static bool directoryExists(const std::wstring& path);
     static std::wstring getFileName(const std::wstring& path);
@@ -33,6 +34,12 @@ public:
     static bool ensureDirectoryExists(const std::wstring& path);
     static bool startsWithIgnoreCase(const std::wstring& str, const std::wstring& prefix);
     static std::wstring toLower(const std::wstring& str);
+
+    // 路径解析工具
+    static bool isAbsolutePath(const std::wstring& path);
+    static std::wstring getFullPath(const std::wstring& path);
+    // 将配置中的目标程序路径解析为绝对路径（相对路径基于模块目录）
+    static std::wstring resolveTargetPath(const std::wstring& targetPath);
 };
 
 #endif // UTILS_H

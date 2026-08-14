@@ -90,7 +90,7 @@ bool HookManager::installFileRedirectHooks() {
     }
     
     bool success = FileRedirectHook::getInstance().initialize();
-    logHookStatus("文件hook", success);
+    logHookStatus(L"文件hook", success);
     return success;
 }
 
@@ -102,7 +102,7 @@ bool HookManager::installFontHooks() {
     }
     
     bool success = FontHook::getInstance().initialize();
-    logHookStatus("字体hook", success);
+    logHookStatus(L"字体hook", success);
     return success;
 }
 
@@ -114,14 +114,14 @@ bool HookManager::installWindowTitleHooks() {
     }
     
     bool success = WindowTitleHook::getInstance().initialize();
-    logHookStatus("窗口标题hook", success);
+    logHookStatus(L"窗口标题hook", success);
     return success;
 }
 
-void HookManager::logHookStatus(const char* hookName, bool success) {
+void HookManager::logHookStatus(const wchar_t* hookName, bool success) {
     if (success) {
-        Logger::getInstance().log(std::string(hookName) + " 安装成功");
+        Logger::getInstance().log(std::wstring(hookName) + L" 安装成功");
     } else {
-        Logger::getInstance().log(std::string(hookName) + " 安装失败");
+        Logger::getInstance().log(std::wstring(hookName) + L" 安装失败");
     }
 }

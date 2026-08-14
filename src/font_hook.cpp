@@ -4,6 +4,7 @@
 #include "detours.h"
 #include <string>
 #include <unordered_map>
+#include <mutex>
 
 // 使用Windows SDK中已定义的SHIFTJIS_CHARSET
 // #define SHIFTJIS_CHARSET 0x80  // Windows SDK中已定义
@@ -48,31 +49,20 @@ static std::string wideToANSIWithCharset(const std::wstring& wstr, BYTE charset)
     return Utils::wstringToANSI(wstr);
 }
 
-// 按指定代码页将ANSI字符串转换为UTF-16 - 绕过代码页hook直接处理
+// 按指定代码页将ANSI字符串转换为UTF-16。
+// 说明：本项目不再 hook MultiByteToWideChar/WideCharToMultiByte
+// （代码页模拟由 LocaleEmulatorPlus 转区功能实现），
+// 因此直接调用系统 API 即可，无需绕过任何代码页 hook。
 static std::wstring convertCodePageToUTF16(const std::string& ansiStr, UINT codePage) {
     if (ansiStr.empty()) return L"";
     
-    // 直接调用原始MultiByteToWideChar函数，绕过代码页hook
-    HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
-    if (!kernel32) {
-        return L"";
-    }
-    
-    typedef int (WINAPI *MultiByteToWideCharFunc)(UINT, DWORD, LPCSTR, int, LPWSTR, int);
-    MultiByteToWideCharFunc originalMultiByteToWideChar = 
-        (MultiByteToWideCharFunc)GetProcAddress(kernel32, "MultiByteToWideChar");
-    
-    if (!originalMultiByteToWideChar) {
-        return L"";
-    }
-    
-    int size_needed = originalMultiByteToWideChar(codePage, 0, ansiStr.c_str(), (int)ansiStr.size(), NULL, 0);
+    int size_needed = MultiByteToWideChar(codePage, 0, ansiStr.c_str(), (int)ansiStr.size(), NULL, 0);
     if (size_needed <= 0) {
         return L"";
     }
     
     std::wstring result(size_needed, 0);
-    originalMultiByteToWideChar(codePage, 0, ansiStr.c_str(), (int)ansiStr.size(), &result[0], size_needed);
+    MultiByteToWideChar(codePage, 0, ansiStr.c_str(), (int)ansiStr.size(), &result[0], size_needed);
     return result;
 }
 
@@ -150,14 +140,21 @@ static bool loadCustomFont(const std::wstring& fontFileName) {
 // 字体可用性结果缓存（自定义字体在初始化时加载，运行期间系统字体不变，缓存是安全的）
 static std::unordered_map<std::wstring, bool> g_fontAvailableCache;
 
+// 线程安全：字体查询会从游戏任意线程触发（CreateFontA/W/Indirect 的 hook 回调），
+// 必须串行化对缓存的读写，避免 unordered_map 并发插入/查询导致崩溃
+static std::mutex g_fontCacheMutex;
+
 // 检查字体是否可用
 static bool isFontAvailable(const std::wstring& fontName) {
     if (fontName.empty()) return false;
     
     // 查询缓存
-    auto it = g_fontAvailableCache.find(fontName);
-    if (it != g_fontAvailableCache.end()) {
-        return it->second;
+    {
+        std::lock_guard<std::mutex> lock(g_fontCacheMutex);
+        auto it = g_fontAvailableCache.find(fontName);
+        if (it != g_fontAvailableCache.end()) {
+            return it->second;
+        }
     }
     
     HDC hdc = GetDC(NULL);
@@ -177,7 +174,10 @@ static bool isFontAvailable(const std::wstring& fontName) {
     ReleaseDC(NULL, hdc);
     
     // 缓存结果
-    g_fontAvailableCache[fontName] = found;
+    {
+        std::lock_guard<std::mutex> lock(g_fontCacheMutex);
+        g_fontAvailableCache[fontName] = found;
+    }
     return found;
 }
 
@@ -355,12 +355,9 @@ HFONT WINAPI FontHook::HookedCreateFontA(
 ) {
     const HookConfig& config = ConfigManager::getInstance().getConfig();
     
-    // 记录原始字体信息
-    std::string originalFaceName = lpszFace ? std::string(lpszFace) : "默认字体";
-    std::wstring originalFaceNameW;
-    
-    // 根据字符集正确转换字体名称
-    originalFaceNameW = convertFontNameToUTF16(originalFaceName, (BYTE)fdwCharSet);
+    // 根据字符集正确转换字体名称（仅转换一次，供日志与后续替换共用）
+    std::wstring wFaceName = lpszFace ? convertFontNameToUTF16(lpszFace, (BYTE)fdwCharSet) : L"";
+    std::wstring originalFaceNameW = wFaceName.empty() ? L"默认字体" : wFaceName;
     
     Logger::getInstance().log(L"原字体(A): " + originalFaceNameW + 
                             L", Charset=" + Utils::intToHexString(fdwCharSet) +
@@ -374,17 +371,10 @@ HFONT WINAPI FontHook::HookedCreateFontA(
     int newWeight = (config.fontWeight > 0) ? config.fontWeight : fnWeight;
     DWORD newCharSet = (config.localeCharset > 0) ? config.localeCharset : fdwCharSet;
     
-    // 转换为宽字符版本处理
-    std::wstring wFaceName;
-    if (lpszFace) {
-        // 根据字符集正确转换字体名称
-        wFaceName = convertFontNameToUTF16(lpszFace, (BYTE)fdwCharSet);
-    }
-    
     // 记录新字体信息
     std::wstring newFaceNameW;
     if (config.fontName.empty()) {
-        newFaceNameW = wFaceName.empty() ? L"默认字体" : wFaceName;
+        newFaceNameW = originalFaceNameW;
     } else {
         newFaceNameW = config.fontName;
     }

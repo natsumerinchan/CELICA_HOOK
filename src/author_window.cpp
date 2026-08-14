@@ -3,17 +3,14 @@
 #include "logger.h"
 #include "utils.h"
 #include <shellapi.h>
-#include <shlwapi.h>
 #include <algorithm>
-#include <thread>
 #include <sstream>
 #include <psapi.h>
-
-#pragma comment(lib, "shlwapi.lib")
 
 // 静态成员初始化
 std::vector<AuthorWindow::LinkInfo> AuthorWindow::m_links;
 bool AuthorWindow::m_linksInitialized = false;
+HFONT AuthorWindow::m_linkFont = nullptr;
 RECT AuthorWindow::m_confirmBtnRect = {};
 RECT AuthorWindow::m_cancelBtnRect = {};
 bool AuthorWindow::m_confirmHovered = false;
@@ -35,6 +32,13 @@ void AuthorWindow::show() {
     
     // 获取目标程序图标
     m_hIcon = getTargetProcessIcon();
+    
+    // 创建链接文本测量/绘制共用的字体（创建一次，避免每条消息都重建字体）
+    if (m_linkFont == nullptr) {
+        m_linkFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+            DEFAULT_PITCH | FF_DONTCARE, L"黑体");
+    }
     
     // 注册窗口类
     WNDCLASSW wc = {};
@@ -125,6 +129,12 @@ void AuthorWindow::close() {
             m_hIcon = nullptr;
             Logger::getInstance().log(L"AuthorWindow::close() - 已清理图标资源");
         }
+        
+        // 清理链接字体（下次 show 时重建）
+        if (m_linkFont) {
+            DeleteObject(m_linkFont);
+            m_linkFont = nullptr;
+        }
     } else {
         Logger::getInstance().log(L"AuthorWindow::close() - 窗口句柄为空，无需关闭");
     }
@@ -159,6 +169,47 @@ void AuthorWindow::drawButton(HDC hdc, const RECT& rect, const std::wstring& tex
     SetTextColor(hdc, RGB(0, 0, 0));
     RECT textRect = rect;
     DrawTextW(hdc, text.c_str(), -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+// 命中测试：鼠标是否位于链接行中 URL 文本上。
+// 与 WM_PAINT 使用同一字体测量，保证命中区域与绘制区域一致；
+// 将原先在 WM_MOUSEMOVE / WM_SETCURSOR / handleLinkClick 中重复三遍的
+// 文本测量逻辑集中于此。
+bool AuthorWindow::hitTestLinkUrl(HWND hwnd, const LinkInfo& link, POINT pt) {
+    if (pt.y < link.rect.top || pt.y > link.rect.bottom || link.url.empty()) {
+        return false;
+    }
+    if (m_linkFont == nullptr) {
+        return false;
+    }
+
+    std::wstring displayText = link.displayText;
+    size_t colonPos = displayText.find(L':');
+    std::wstring description = (colonPos != std::wstring::npos) ? displayText.substr(0, colonPos + 1) : displayText;
+    std::wstring urlPart = (colonPos != std::wstring::npos) ? displayText.substr(colonPos + 1) : L"";
+    if (urlPart.empty()) {
+        return false;
+    }
+
+    HDC hdc = GetDC(hwnd);
+    if (!hdc) {
+        return false;
+    }
+    HGDIOBJ hOldFont = SelectObject(hdc, m_linkFont);
+
+    SIZE descSize, urlSize;
+    GetTextExtentPoint32W(hdc, description.c_str(), (int)description.length(), &descSize);
+    GetTextExtentPoint32W(hdc, urlPart.c_str(), (int)urlPart.length(), &urlSize);
+
+    SelectObject(hdc, hOldFont);
+    ReleaseDC(hwnd, hdc);
+
+    int totalWidth = descSize.cx + urlSize.cx;
+    int startX = (link.rect.right - totalWidth) / 2;
+    int urlStartX = startX + descSize.cx;
+    int urlEndX = urlStartX + urlSize.cx;
+
+    return pt.x >= urlStartX && pt.x <= urlEndX;
 }
 
 LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -240,41 +291,7 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             
             for (auto& link : m_links) {
                 bool wasHovered = link.hovered;
-                
-                if (yPos >= link.rect.top && yPos <= link.rect.bottom) {
-                    std::wstring displayText = link.displayText;
-                    size_t colonPos = displayText.find(L':');
-                    std::wstring description, urlPart;
-                    
-                    if (colonPos != std::wstring::npos) {
-                        description = displayText.substr(0, colonPos + 1);
-                        urlPart = displayText.substr(colonPos + 1);
-                    } else {
-                        description = displayText;
-                        urlPart = L"";
-                    }
-                    
-                    HDC hdc = GetDC(hwnd);
-                    HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"黑体");
-                    HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
-                    
-                    SIZE descSize, urlSize;
-                    GetTextExtentPoint32W(hdc, description.c_str(), (int)description.length(), &descSize);
-                    GetTextExtentPoint32W(hdc, urlPart.c_str(), (int)urlPart.length(), &urlSize);
-                    
-                    int totalWidth = descSize.cx + urlSize.cx;
-                    int startX = (link.rect.right - totalWidth) / 2;
-                    int urlStartX = startX + descSize.cx;
-                    int urlEndX = urlStartX + urlSize.cx;
-                    
-                    link.hovered = (xPos >= urlStartX && xPos <= urlEndX && !urlPart.empty());
-                    
-                    SelectObject(hdc, hOldFont);
-                    DeleteObject(hFont);
-                    ReleaseDC(hwnd, hdc);
-                } else {
-                    link.hovered = false;
-                }
+                link.hovered = hitTestLinkUrl(hwnd, link, pt);
                 
                 if (wasHovered != link.hovered) {
                     needRepaint = true;
@@ -307,43 +324,9 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             ScreenToClient(hwnd, &pt);
             
             for (const auto& link : m_links) {
-                if (pt.y >= link.rect.top && pt.y <= link.rect.bottom) {
-                    std::wstring displayText = link.displayText;
-                    size_t colonPos = displayText.find(L':');
-                    std::wstring description, urlPart;
-                    
-                    if (colonPos != std::wstring::npos) {
-                        description = displayText.substr(0, colonPos + 1);
-                        urlPart = displayText.substr(colonPos + 1);
-                    } else {
-                        description = displayText;
-                        urlPart = L"";
-                    }
-                    
-                    HDC hdc = GetDC(hwnd);
-                    HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"黑体");
-                    HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
-                    
-                    SIZE descSize, urlSize;
-                    GetTextExtentPoint32W(hdc, description.c_str(), (int)description.length(), &descSize);
-                    GetTextExtentPoint32W(hdc, urlPart.c_str(), (int)urlPart.length(), &urlSize);
-                    
-                    int totalWidth = descSize.cx + urlSize.cx;
-                    int startX = (link.rect.right - totalWidth) / 2;
-                    int urlStartX = startX + descSize.cx;
-                    int urlEndX = urlStartX + urlSize.cx;
-                    
-                    if (pt.x >= urlStartX && pt.x <= urlEndX && !urlPart.empty()) {
-                        SetCursor(LoadCursor(NULL, IDC_HAND));
-                        SelectObject(hdc, hOldFont);
-                        DeleteObject(hFont);
-                        ReleaseDC(hwnd, hdc);
-                        return TRUE;
-                    }
-                    
-                    SelectObject(hdc, hOldFont);
-                    DeleteObject(hFont);
-                    ReleaseDC(hwnd, hdc);
+                if (hitTestLinkUrl(hwnd, link, pt)) {
+                    SetCursor(LoadCursor(NULL, IDC_HAND));
+                    return TRUE;
                 }
             }
             return DefWindowProcW(hwnd, uMsg, wParam, lParam);
@@ -353,8 +336,10 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             
-            HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"黑体");
-            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+            HFONT hOldFont = nullptr;
+            if (m_linkFont != nullptr) {
+                hOldFont = (HFONT)SelectObject(hdc, m_linkFont);
+            }
             
             SetTextColor(hdc, RGB(0, 0, 0));
             SetBkMode(hdc, TRANSPARENT);
@@ -435,8 +420,9 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             m_cancelBtnRect = {startX + buttonWidth + spacing, buttonY, startX + buttonWidth * 2 + spacing, buttonY + buttonHeight};
             drawButton(hdc, m_cancelBtnRect, L"退出", m_cancelHovered);
             
-            SelectObject(hdc, hOldFont);
-            DeleteObject(hFont);
+            if (hOldFont != nullptr) {
+                SelectObject(hdc, hOldFont);
+            }
             
             EndPaint(hwnd, &ps);
             return 0;
@@ -448,47 +434,13 @@ LRESULT AuthorWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 }
 
 LRESULT AuthorWindow::handleLinkClick(HWND hwnd, int xPos, int yPos) {
+    POINT pt = {xPos, yPos};
     for (const auto& link : m_links) {
-        if (yPos >= link.rect.top && yPos <= link.rect.bottom) {
-            std::wstring displayText = link.displayText;
-            size_t colonPos = displayText.find(L':');
-            std::wstring description, urlPart;
-            
-            if (colonPos != std::wstring::npos) {
-                description = displayText.substr(0, colonPos + 1);
-                urlPart = displayText.substr(colonPos + 1);
-            } else {
-                description = displayText;
-                urlPart = L"";
-            }
-            
-            HDC hdc = GetDC(hwnd);
-            HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"黑体");
-            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
-            
-            SIZE descSize, urlSize;
-            GetTextExtentPoint32W(hdc, description.c_str(), (int)description.length(), &descSize);
-            GetTextExtentPoint32W(hdc, urlPart.c_str(), (int)urlPart.length(), &urlSize);
-            
-            int totalWidth = descSize.cx + urlSize.cx;
-            int startX = (link.rect.right - totalWidth) / 2;
-            int urlStartX = startX + descSize.cx;
-            int urlEndX = urlStartX + urlSize.cx;
-            
-            if (xPos >= urlStartX && xPos <= urlEndX && !urlPart.empty()) {
-                SelectObject(hdc, hOldFont);
-                DeleteObject(hFont);
-                ReleaseDC(hwnd, hdc);
-                
-                // 在新线程中打开链接，以避免阻塞UI
-                std::thread(openLink, link.url).detach();
-                
-                return 0;
-            }
-            
-            SelectObject(hdc, hOldFont);
-            DeleteObject(hFont);
-            ReleaseDC(hwnd, hdc);
+        if (hitTestLinkUrl(hwnd, link, pt)) {
+            // 同步调用打开链接：ShellExecuteW 本身很快，
+            // 避免原 detach 线程在启动器退出后未执行完导致链接打不开
+            openLink(link.url);
+            return 0;
         }
     }
     return DefWindowProcW(hwnd, WM_LBUTTONDOWN, 0, 0);
@@ -522,17 +474,11 @@ std::wstring AuthorWindow::getTargetProcessPath() {
         return L"";
     }
     
-    // 处理相对路径
-    if (PathIsRelativeW(targetPath.c_str())) {
-        wchar_t currentDir[MAX_PATH];
-        GetCurrentDirectoryW(MAX_PATH, currentDir);
-        wchar_t fullPath[MAX_PATH];
-        PathCombineW(fullPath, currentDir, targetPath.c_str());
-        targetPath = fullPath;
-    }
+    // 相对路径基于模块目录解析并规范化为绝对路径
+    targetPath = Utils::resolveTargetPath(targetPath);
     
     // 检查目标程序是否存在
-    if (GetFileAttributesW(targetPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!Utils::fileExists(targetPath)) {
         Logger::getInstance().log(L"AuthorWindow::getTargetProcessPath() - 目标程序不存在: " + targetPath);
         return L"";
     }
